@@ -37,3 +37,34 @@ export async function downloadAuthenticatedFile(
     URL.revokeObjectURL(objectUrl);
   }
 }
+
+/** POST JSON 并下载响应为文件（如合并 ZIP）。 */
+export async function downloadAuthenticatedPost(
+  url: string,
+  filename: string,
+  body: unknown,
+  headers: Record<string, string> = {},
+): Promise<void> {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {
+      ...headers,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(await r.text());
+  const blob = await r.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = objectUrl;
+    a.download = filename;
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}

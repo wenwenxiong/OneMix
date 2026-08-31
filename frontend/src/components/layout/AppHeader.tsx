@@ -18,7 +18,7 @@ export function AppHeader({ onSettings, onLog }: AppHeaderProps) {
           一键生成电商图片
         </h1>
         <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground dark:text-white/70">
-          上传商品信息 → 提取关键参数 → 自动生成提示词并批量生成主图与详情图。
+          上传商品信息 → 提取关键参数 → 生成主图与详情图 → 基于详情图生成短视频。
         </p>
       </div>
       <div className="flex items-center gap-1 rounded-xl border border-border/80 bg-card/80 p-1 shadow-sm backdrop-blur-sm">

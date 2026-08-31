@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 class SlotJobIn(BaseModel):
     list_index: int
-    kind: Literal["main", "detail"]
+    kind: Literal["main", "detail", "video"]
     index: int
     prompt: str
     export_path: Optional[str] = None
@@ -22,7 +22,11 @@ class SlotJobIn(BaseModel):
     )
     resolution: Optional[str] = Field(
         default="2K",
-        description="分辨率档位：依模型而定（如 Seedream 的 2K/3K，或千问的 rec=官方推荐）。",
+        description="分辨率档位：依模型而定（如 Seedream 的 2K/3K，Seedance 的 480p/720p）。",
+    )
+    duration: Optional[int] = Field(
+        default=None,
+        description="视频时长（秒），仅 kind=video 时使用；Seedance 支持 4–15。",
     )
 
 
@@ -32,6 +36,7 @@ class PlanSlotsBody(BaseModel):
     competitor_summary: str = ""
     n_main: int = 5
     n_detail: int = 10
+    n_video: int = 0
     strategy: str = "background_v2"
     n_white_images: int = Field(default=1, ge=1, description="用于计算每张槽位默认参考的白底图数量（与实际上传张数一致即可）。")
     custom_template: str = ""
@@ -50,7 +55,7 @@ class PlanSingleBody(BaseModel):
     product_name: str
     product_desc: str = ""
     competitor_summary: str = ""
-    kind: Literal["main", "detail"]
+    kind: Literal["main", "detail", "video"]
     index: int
     strategy: str = "background_v2"
     old_prompt: str = ""
@@ -139,3 +144,15 @@ class ExtractInfoOut(BaseModel):
     merged_text: str
     extracted_json: dict
     source_stats: dict[str, int]
+
+
+class BundleAllItemIn(BaseModel):
+    job_id: str
+    list_index: int
+    kind: Literal["main", "detail", "video"]
+    index: int = Field(ge=1, description="展示序号，用于 ZIP 内文件名")
+
+
+class BundleAllBody(BaseModel):
+    items: list[BundleAllItemIn] = Field(min_length=1)
+    product_name: str = ""

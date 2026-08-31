@@ -111,17 +111,23 @@ def build_plan_background_prompt(
     competitor_summary: str,
     n_main: int,
     n_detail: int,
+    n_video: int = 0,
     strategy_notes: str,
     custom_template: str = "",
     user_requirements: str = "",
     ref_image_count: int = 0,
 ) -> str:
     ref_block = _ref_images_block(ref_image_count=ref_image_count)
+    count_bits = [f"主图 {n_main}", f"详情 {n_detail}"]
+    if n_video > 0:
+        count_bits.append(f"视频 {n_video}")
+    count_desc = "，".join(count_bits)
     if (custom_template or "").strip():
+        nonzero = sum(1 for x in (n_main, n_detail, n_video) if x > 0)
         output_hint = (
             "请严格输出你模板中定义的 JSON 对象；不要输出 Markdown、不要解释、不要追加其它段落。"
-            if (n_main == 0 or n_detail == 0)
-            else "优先按模板输出结构化 JSON；若无法稳定输出 JSON，再退化为 MAIN/DETAIL\t序号\twanx正向提示词 的行格式。"
+            if nonzero <= 1
+            else "优先按模板输出结构化 JSON；若无法稳定输出 JSON，再退化为 MAIN/DETAIL/VIDEO\t序号\t正向提示词 的行格式。"
         )
         return f"""{custom_template.strip()}
 
@@ -143,10 +149,18 @@ def build_plan_background_prompt(
 {ref_block}
 额外硬性输出要求（用于系统解析）：
 1) {output_hint}
-2) 方案数量必须与用户要求一致（主图 {n_main}，详情 {n_detail}）。
+2) 方案数量必须与用户要求一致（{count_desc}）。
 3) 每个方案都必须包含可直接用于生成的 wanx正向提示词；如存在 wanx负面提示词也请填写。
 """
 
+    line_kinds = []
+    if n_main:
+        line_kinds.append(f"MAIN 1..{n_main}")
+    if n_detail:
+        line_kinds.append(f"DETAIL 1..{n_detail}")
+    if n_video:
+        line_kinds.append(f"VIDEO 1..{n_video}")
+    kind_order = "，再输出 ".join(line_kinds) if line_kinds else "（无）"
     return f"""你是电商视觉总监，请基于以下信息与参考图生成槽位提示词。
 
 【商品名称】
@@ -163,9 +177,9 @@ def build_plan_background_prompt(
 {ref_block}
 输出要求：
 1) 不要输出解释、不要输出 Markdown。
-2) 严格输出 {n_main + n_detail} 行。
-3) 每行使用 Tab 分隔三列：MAIN/DETAIL\t序号\t单行提示词。
-4) 先输出 MAIN 1..{n_main}，再输出 DETAIL 1..{n_detail}。
+2) 严格输出 {n_main + n_detail + n_video} 行。
+3) 每行使用 Tab 分隔三列：MAIN/DETAIL/VIDEO\t序号\t单行提示词。
+4) 先输出 {kind_order}。
 """
 
 

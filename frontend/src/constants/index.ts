@@ -153,8 +153,56 @@ export const DETAIL_PLAN_TEMPLATE = `你是一个专业的电商详情页视觉�
 
 请根据以上要求，为用户生成商品详情页背景创意提示词。`;
 
+export const VIDEO_PLAN_TEMPLATE = `你是一个专业的电商短视频创意总监和AI视频提示词工程师。你的任务是根据提供的【商品详细信息】和【用户需求】，基于详情图参考素材，为商品短视频生成可执行的镜头与动态提示词。
+
+## 📌 电商短视频的核心特征
+
+- **目标**：用动态画面强化卖点、提升停留与转化
+- **参考原则**：以详情图中的商品主体、材质、色彩为准，禁止臆造不符的商品形态
+- **镜头原则**：运镜清晰、节奏适中、主体始终可读
+- **时长考虑**：适合 4–15 秒短视频（默认约 5 秒）
+
+## 📋 输入信息
+
+【商品详细信息】
+[在此处粘贴第一阶段提取的JSON信息]
+
+【用户需求】
+- 参考详情图数量：[用户上传/选用的图片数量]
+- 参考图描述：[视角或画面说明]
+- 要求生成的视频数量：[用户要求的数量]
+- 特殊要求：[用户可能的特殊要求]
+
+## 🎯 输出格式
+
+请严格按照以下JSON格式输出：
+
+{
+  "视频创意方案": [
+    {
+      "方案编号": 1,
+      "适用参考图": "图1",
+      "创意主题": "简短有力的主题名称",
+      "镜头运动": "推进/环绕/平移/拉远等",
+      "画面节奏": "舒缓/轻快等",
+      "场景氛围": "光影、色调、环境",
+      "卖点表达": "本段要突出的核心卖点",
+      "wanx正向提示词": "可直接用于图生视频的中文提示词，含运镜与商品主体",
+      "wanx负面提示词": "避免商品变形、闪烁、文字乱码等"
+    }
+  ],
+  "视频创意说明": "说明每个方案如何服务详情页转化"
+}
+
+## 🚀 现在开始生成
+
+请根据以上要求，为用户生成商品短视频提示词。`;
+
 /** 默认：豆包 Seedream 5.0 lite（支持图生图，开通门槛通常更低） */
 export const DEFAULT_STRATEGY = "doubao_seedream_5_lite";
+
+/** 步骤四默认：即梦 Seedance 2.0 mini */
+export const DEFAULT_VIDEO_STRATEGY = "doubao_seedance_2_mini";
 
 /**
  * 判断模型是否支持图生图（参考图 / image 入参）。
@@ -266,6 +314,41 @@ export const STRATEGY_GROUPS: StrategyGroup[] = [
         supportsI2i: true,
         description:
           "支持图生图/编辑；加速版，兼顾画质与响应速度。",
+      },
+    ],
+  },
+];
+
+/** 步骤四视频策略（独立于图生图目录） */
+export const VIDEO_STRATEGY_GROUPS: StrategyGroup[] = [
+  {
+    id: "seedance",
+    label: "即梦 Seedance",
+    models: [
+      {
+        value: "doubao_seedance_2_mini",
+        label: "Seedance 2.0 mini",
+        modelId: "doubao-seedance-2-0-mini-260615",
+        key: "ark",
+        supportsI2i: true,
+        description:
+          "轻量视频模型，最高 720p；适合基于详情图快速生成电商短视频。",
+      },
+      {
+        value: "doubao_seedance_2_fast",
+        label: "Seedance 2.0 fast",
+        modelId: "doubao-seedance-2-0-fast-260128",
+        key: "ark",
+        supportsI2i: true,
+        description: "更快出片，最高 720p；适合迭代试稿。",
+      },
+      {
+        value: "doubao_seedance_2",
+        label: "Seedance 2.0",
+        modelId: "doubao-seedance-2-0-260128",
+        key: "ark",
+        supportsI2i: true,
+        description: "标准版，支持更高画质；适合成片质量优先场景。",
       },
     ],
   },

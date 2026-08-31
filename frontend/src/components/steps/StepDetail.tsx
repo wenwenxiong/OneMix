@@ -1,5 +1,5 @@
 import type { DragEvent } from "react";
-import { ArrowLeft, ChevronDown, ChevronUp, FolderOpen, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, ChevronDown, ChevronUp, FolderOpen, Sparkles } from "lucide-react";
 import type { JobState, SlotRow, StrategyGroup, WhiteImageItem } from "@/types";
 import type { ResultThumbItem } from "@/components/images/ResultThumbGrid";
 import { DropZone } from "@/components/images/DropZone";
@@ -39,7 +39,7 @@ type StepDetailProps = {
   onOpenMainImageLibrary: () => void;
   onPreview: (url: string, name: string) => void;
   busy: boolean;
-  activePlanKind: "main" | "detail" | null;
+  activePlanKind: "main" | "detail" | "video" | null;
   detailSlots: SlotRow[];
   collapsePanel: boolean;
   onToggleCollapse: () => void;
@@ -67,6 +67,7 @@ type StepDetailProps = {
   onPreviewError: (slot: SlotRow, index: number) => void;
   canGenerate: boolean;
   onBack: () => void;
+  onNext: () => void;
 };
 
 export function StepDetail(props: StepDetailProps) {
@@ -201,12 +202,11 @@ export function StepDetail(props: StepDetailProps) {
           </Button>
           <Button
             type="button"
-            size="lg"
-            disabled={props.busy || props.detailSlots.length === 0}
-            onClick={() => void props.onGenerateAll()}
+            disabled={props.busy || props.resultItems.length === 0}
+            onClick={props.onNext}
           >
-            <Sparkles className="h-4 w-4" />
-            生成详情图
+            下一步：生成视频
+            <ArrowRight className="h-4 w-4" />
           </Button>
         </div>
       </CardContent>

@@ -36,11 +36,29 @@ export function buildDetailResults(
     });
 }
 
+export function buildVideoResults(
+  slots: SlotRow[],
+  resultMap: Map<number, string>,
+): ResultThumbItem[] {
+  return slots
+    .filter((s) => resultMap.has(s.list_index))
+    .map((s) => {
+      const jobId = resultMap.get(s.list_index)!;
+      return {
+        listIndex: s.list_index,
+        displayIndex: s.index,
+        imageUrl: `/api/jobs/${jobId}/result/${s.list_index}`,
+        label: `视频 ${s.index}`,
+      };
+    });
+}
+
 export function previewErrorHandler(
   app: ReturnType<typeof useOneMixApp>,
   slot: SlotRow,
   index: number,
 ) {
-  if (slot.kind === "detail") app.refreshDetailPreviewUrl(index);
+  if (slot.kind === "video") app.refreshVideoRefPreviewUrl(index);
+  else if (slot.kind === "detail") app.refreshDetailPreviewUrl(index);
   else app.refreshWhitePreviewUrl(index);
 }

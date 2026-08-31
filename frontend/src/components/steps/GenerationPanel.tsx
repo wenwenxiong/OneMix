@@ -1,5 +1,5 @@
 import type { DragEvent } from "react";
-import { Download, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import type { JobState, SlotRow, WhiteImageItem } from "@/types";
 import { ResultThumbGrid, type ResultThumbItem } from "@/components/images/ResultThumbGrid";
 import { SlotTable } from "@/components/slots/SlotTable";
@@ -37,6 +37,8 @@ type GenerationPanelProps = {
   ) => void;
   onPreview: (url: string, name: string) => void;
   onAddAsRef: (url: string, name: string) => void;
+  mediaType?: "image" | "video";
+  hideAddAsRef?: boolean;
 };
 
 export function GenerationPanel({
@@ -66,6 +68,8 @@ export function GenerationPanel({
   onResultDragStart,
   onPreview,
   onAddAsRef,
+  mediaType = "image",
+  hideAddAsRef = false,
 }: GenerationPanelProps) {
   if (!showPanel || collapsePanel) return null;
 
@@ -116,17 +120,6 @@ export function GenerationPanel({
           <Sparkles className="h-4 w-4" />
           {generateLabel}
         </Button>
-        {canBatchDownload && (
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy}
-            onClick={onDownloadZip}
-          >
-            <Download className="h-4 w-4" />
-            一键批量下载
-          </Button>
-        )}
         {job.status && (
           <div className="min-w-0 flex-1 space-y-1.5 sm:min-w-[180px]">
             <div className="flex justify-between gap-2 text-xs text-muted-foreground">
@@ -145,6 +138,8 @@ export function GenerationPanel({
       <ResultThumbGrid
         items={resultItems}
         disabled={busy}
+        mediaType={mediaType}
+        hideAddAsRef={hideAddAsRef}
         onDragStart={onResultDragStart}
         onPreview={onPreview}
         onAddAsRef={onAddAsRef}

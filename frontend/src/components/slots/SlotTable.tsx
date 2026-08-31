@@ -81,7 +81,8 @@ export function SlotTable({
     [profile],
   );
   const slotKind = slots[0]?.kind ?? "main";
-  const sizeOpts = { kind: slotKind as "main" | "detail" };
+  const sizeOpts = { kind: slotKind as "main" | "detail" | "video" };
+  const generateOneLabel = slotKind === "video" ? "生视频" : "生图";
 
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchResolution, setBatchResolution] = useState(profile.defaultResolution);
@@ -259,7 +260,7 @@ export function SlotTable({
               onClick={() => onGenerateOne(row.original.list_index)}
             >
               <Sparkles className="h-3 w-3" />
-              生图
+              {generateOneLabel}
             </Button>
           </div>
         ),

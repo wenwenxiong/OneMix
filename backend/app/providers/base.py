@@ -21,6 +21,7 @@ class ModelProvider(Protocol):
         competitor_summary: str,
         n_main: int,
         n_detail: int,
+        n_video: int = 0,
         strategy: str,
         custom_template: str = "",
         user_requirements: str = "",

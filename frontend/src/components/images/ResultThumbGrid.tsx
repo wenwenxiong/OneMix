@@ -12,6 +12,8 @@ export type ResultThumbItem = {
 type ResultThumbGridProps = {
   items: ResultThumbItem[];
   disabled?: boolean;
+  mediaType?: "image" | "video";
+  hideAddAsRef?: boolean;
   onDragStart: (e: DragEvent<HTMLElement>, imageUrl: string, displayIndex: number) => void;
   onPreview: (url: string, name: string) => void;
   onAddAsRef: (imageUrl: string, imageName: string) => void;
@@ -23,6 +25,8 @@ type ResultThumbGridProps = {
 export function ResultThumbGrid({
   items,
   disabled,
+  mediaType = "image",
+  hideAddAsRef = false,
   onDragStart,
   onPreview,
   onAddAsRef,
@@ -32,12 +36,16 @@ export function ResultThumbGrid({
 }: ResultThumbGridProps) {
   if (items.length === 0) return null;
 
+  const isVideo = mediaType === "video";
+
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="space-y-0.5">
           <h3 className="text-sm font-medium text-foreground">生成结果</h3>
-          <p className="text-xs text-muted-foreground">可单张下载，或一键批量打包</p>
+          <p className="text-xs text-muted-foreground">
+            {isVideo ? "可单个下载，或一键批量打包" : "可单张下载，或一键批量打包"}
+          </p>
         </div>
         {onDownloadAll ? (
           <Button
@@ -57,17 +65,27 @@ export function ResultThumbGrid({
           <div key={`result-${item.listIndex}`} className="space-y-2">
             <button
               type="button"
-              draggable
+              draggable={!isVideo}
               disabled={disabled}
               onDragStart={(e) => onDragStart(e, item.imageUrl, item.displayIndex)}
               onClick={() => onPreview(item.imageUrl, item.label)}
               className="group block w-full overflow-hidden rounded-xl border border-border/80 bg-card shadow-sm transition-colors duration-150 hover:border-primary/40 disabled:opacity-50"
             >
-              <img
-                src={item.imageUrl}
-                alt={item.label}
-                className="aspect-square w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.02]"
-              />
+              {isVideo ? (
+                <video
+                  src={item.imageUrl}
+                  className="aspect-square w-full object-cover"
+                  muted
+                  playsInline
+                  preload="metadata"
+                />
+              ) : (
+                <img
+                  src={item.imageUrl}
+                  alt={item.label}
+                  className="aspect-square w-full object-cover transition-transform duration-200 ease-out group-hover:scale-[1.02]"
+                />
+              )}
               <p className="truncate px-2.5 py-2 text-xs font-medium text-foreground">
                 {item.label}
               </p>
@@ -83,22 +101,24 @@ export function ResultThumbGrid({
                   onClick={() => void onDownloadOne(item)}
                 >
                   <Download className="h-3 w-3 shrink-0" />
-                  <span className="truncate">下载此图</span>
+                  <span className="truncate">{isVideo ? "下载此视频" : "下载此图"}</span>
                 </Button>
               ) : null}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-7 min-w-0 flex-1 gap-1 px-1.5 text-[11px]"
-                disabled={disabled}
-                onClick={() =>
-                  onAddAsRef(item.imageUrl, `${item.label.replace(/\s/g, "")}.jpg`)
-                }
-              >
-                <ImagePlus className="h-3 w-3 shrink-0" />
-                <span className="truncate">选为参考图</span>
-              </Button>
+              {!hideAddAsRef ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 min-w-0 flex-1 gap-1 px-1.5 text-[11px]"
+                  disabled={disabled}
+                  onClick={() =>
+                    onAddAsRef(item.imageUrl, `${item.label.replace(/\s/g, "")}.jpg`)
+                  }
+                >
+                  <ImagePlus className="h-3 w-3 shrink-0" />
+                  <span className="truncate">选为参考图</span>
+                </Button>
+              ) : null}
             </div>
           </div>
         ))}

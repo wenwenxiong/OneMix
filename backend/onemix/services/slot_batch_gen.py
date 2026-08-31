@@ -37,8 +37,10 @@ def run_slot_batch_gen(
 
     main_dir = export_session / "主图"
     det_dir = export_session / "详情"
+    video_dir = export_session / "视频"
     main_dir.mkdir(parents=True, exist_ok=True)
     det_dir.mkdir(parents=True, exist_ok=True)
+    video_dir.mkdir(parents=True, exist_ok=True)
     results: list[dict] = []
     done = 0
     only_set = set(only_indices) if only_indices is not None else None
@@ -73,9 +75,17 @@ def run_slot_batch_gen(
             prompt = job["prompt"]
             slot_ref_path = str(job.get("ref_image_path") or "").strip()
             slot_resolution = str(job.get("resolution") or "2K").strip() or "2K"
-            # 详情默认竖图 9:16；主图默认 1:1
-            default_aspect = "9:16" if kind == "detail" else "1:1"
+            # 详情默认竖图 9:16；视频默认 9:16；主图默认 1:1
+            if kind == "detail" or kind == "video":
+                default_aspect = "9:16"
+            else:
+                default_aspect = "1:1"
             slot_aspect = str(job.get("aspect_ratio") or default_aspect).strip() or default_aspect
+            slot_duration = job.get("duration")
+            try:
+                slot_duration_i = int(slot_duration) if slot_duration is not None else 5
+            except (TypeError, ValueError):
+                slot_duration_i = 5
             model_size = dashscope_svc.resolve_generation_size_for_strategy(
                 strategy,
                 resolution=slot_resolution,
@@ -195,6 +205,32 @@ def run_slot_batch_gen(
                     model=dashscope_svc.resolve_doubao_model(eff_strategy),
                     size=model_size,
                 )
+            elif dashscope_svc.is_seedance_strategy(eff_strategy):
+                if not ark_api_key:
+                    raise RuntimeError("当前策略需要 ARK API Key")
+                if slot_ref_path:
+                    p = Path(slot_ref_path)
+                    use_white = p.resolve() if p.is_file() else ref_whites[(idx - 1) % len(ref_whites)]
+                else:
+                    use_white = ref_whites[(idx - 1) % len(ref_whites)]
+                image_data_url = dashscope_svc.local_image_to_data_url(use_white)
+                out = video_dir / f"video_{idx:02d}.mp4"
+                dashscope_svc.doubao_seedance_generate_to_path(
+                    api_key=ark_api_key,
+                    prompt=prompt,
+                    dest=out,
+                    image=image_data_url,
+                    model=dashscope_svc.resolve_seedance_model(eff_strategy),
+                    resolution=slot_resolution if slot_resolution.lower().endswith("p") else "720p",
+                    ratio=slot_aspect,
+                    duration=slot_duration_i,
+                    generate_audio=False,
+                )
+                results.append({"list_index": li, "export_path": str(out)})
+                done += 1
+                if progress_cb:
+                    progress_cb(done)
+                continue
             elif dashscope_svc.is_qwen_image_strategy(eff_strategy):
                 if not dashscope_api_key:
                     raise RuntimeError("当前策略需要 DashScope API Key")
@@ -222,6 +258,8 @@ def run_slot_batch_gen(
                     is_white_slot=False,
                 )
                 results.append({"list_index": li, "export_path": str(out)})
+            elif kind == "video":
+                raise RuntimeError("视频槽位必须使用 Seedance 策略")
             else:
                 out = det_dir / f"detail_{idx:02d}.jpg"
                 dashscope_svc.download_image(url, raw)

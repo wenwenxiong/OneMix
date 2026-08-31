@@ -15,12 +15,15 @@ import type {
 import {
   MAIN_PLAN_TEMPLATE,
   DETAIL_PLAN_TEMPLATE,
+  VIDEO_PLAN_TEMPLATE,
   STRATEGY_GROUPS,
+  VIDEO_STRATEGY_GROUPS,
   DEFAULT_STRATEGY,
+  DEFAULT_VIDEO_STRATEGY,
   clampSlotImageSize,
   mergeSyncedModelsIntoGroups,
 } from "@/constants";
-import { splitCompetitorSummary, normalizedRefWhiteIndex, downloadAuthenticatedFile } from "@/utils";
+import { splitCompetitorSummary, normalizedRefWhiteIndex, downloadAuthenticatedFile, downloadAuthenticatedPost } from "@/utils";
 import { toast } from "sonner";
 import type { ResultThumbItem } from "@/components/images/ResultThumbGrid";
 import { useApiKeys } from "@/hooks/useApiKeys";
@@ -60,9 +63,12 @@ export function useOneMixApp() {
   const [desc, setDesc] = useState("");
   const [nMain, setNMain] = useState(1);
   const [nDetail, setNDetail] = useState(4);
+  const [nVideo, setNVideo] = useState(2);
   const [nMainInput, setNMainInput] = useState("1");
   const [nDetailInput, setNDetailInput] = useState("4");
+  const [nVideoInput, setNVideoInput] = useState("2");
   const [strategy, setStrategy] = useState(DEFAULT_STRATEGY);
+  const [videoStrategy, setVideoStrategy] = useState(DEFAULT_VIDEO_STRATEGY);
   const [arkSyncedModels, setArkSyncedModels] = useState<ArkSeedreamModel[]>(
     [],
   );
@@ -92,6 +98,10 @@ export function useOneMixApp() {
     WhiteImageItem[]
   >([]);
   const [, setDetailWhiteViewDescs] = useState<string[]>([]);
+  const [videoRefFiles, setVideoRefFiles] = useState<File[]>([]);
+  const [videoRefImageItems, setVideoRefImageItems] = useState<WhiteImageItem[]>(
+    [],
+  );
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [previewImageName, setPreviewImageName] = useState("");
   const [slots, setSlots] = useState<SlotRow[]>([]);
@@ -110,18 +120,27 @@ export function useOneMixApp() {
     progress: { p: 0, t: 0 },
     results: [],
   });
+  const [videoJob, setVideoJob] = useState<JobState>({
+    jobId: null,
+    status: "",
+    progress: { p: 0, t: 0 },
+    results: [],
+  });
   const [mainResultRefs, setMainResultRefs] = useState<ResultRefMap>({});
   const [detailResultRefs, setDetailResultRefs] = useState<ResultRefMap>({});
+  const [videoResultRefs, setVideoResultRefs] = useState<ResultRefMap>({});
   const [activePlanKind, setActivePlanKind] = useState<
-    "main" | "detail" | null
+    "main" | "detail" | "video" | null
   >(null);
   const [collapseMainPanel, setCollapseMainPanel] = useState(false);
   const [collapseDetailPanel, setCollapseDetailPanel] = useState(false);
+  const [collapseVideoPanel, setCollapseVideoPanel] = useState(false);
   const [serverSettings, setServerSettings] = useState<ServerSettings | null>(
     null,
   );
   const [isStep2DragOver, setIsStep2DragOver] = useState(false);
   const [isStep3DragOver, setIsStep3DragOver] = useState(false);
+  const [isStep4DragOver, setIsStep4DragOver] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [resultViewMode, setResultViewMode] = useState<"structured" | "json">(
@@ -141,6 +160,13 @@ export function useOneMixApp() {
   const [activeImageTab, setActiveImageTab] = useState<
     "generated" | "uploaded"
   >("generated");
+  const [showDetailImageLibrary, setShowDetailImageLibrary] = useState(false);
+  const [selectedDetailImages, setSelectedDetailImages] = useState<number[]>(
+    [],
+  );
+  const [activeDetailImageTab, setActiveDetailImageTab] = useState<
+    "main" | "detail" | "uploaded"
+  >("detail");
 
   const notify = useCallback((s: string) => {
     toast.warning(s);
@@ -283,6 +309,20 @@ export function useOneMixApp() {
     setDetailWhiteViewDescs((prev) => files.map((_, i) => prev[i] ?? ""));
   };
 
+  const onSelectVideoRefFiles = (fileList: FileList | null) => {
+    videoRefImageItems.forEach((it) => URL.revokeObjectURL(it.url));
+    if (!fileList || fileList.length === 0) {
+      setVideoRefFiles([]);
+      setVideoRefImageItems([]);
+      return;
+    }
+    const files = Array.from(fileList);
+    setVideoRefFiles(files);
+    setVideoRefImageItems(
+      files.map((f) => ({ file: f, url: URL.createObjectURL(f) })),
+    );
+  };
+
   const onRemoveWhiteFileAt = useCallback((index: number) => {
     setWhiteImageItems((prev) => {
       const next = [...prev];
@@ -341,6 +381,31 @@ export function useOneMixApp() {
     [],
   );
 
+  const onRemoveVideoRefAt = useCallback((index: number) => {
+    setVideoRefImageItems((prev) => {
+      const next = [...prev];
+      const itemToRemove = next[index];
+      if (itemToRemove) URL.revokeObjectURL(itemToRemove.url);
+      next.splice(index, 1);
+      return next;
+    });
+    setVideoRefFiles((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const onReplaceVideoRefAt = useCallback((index: number, file: File | null) => {
+    if (!file) return;
+    const nextUrl = URL.createObjectURL(file);
+    setVideoRefImageItems((prev) => {
+      const next = [...prev];
+      const old = next[index];
+      if (!old) return prev;
+      URL.revokeObjectURL(old.url);
+      next[index] = { file, url: nextUrl };
+      return next;
+    });
+    setVideoRefFiles((prev) => prev.map((f, i) => (i === index ? file : f)));
+  }, []);
+
   const refreshWhitePreviewUrl = useCallback((index: number) => {
     setWhiteImageItems((prev) => {
       const item = prev[index];
@@ -355,6 +420,18 @@ export function useOneMixApp() {
 
   const refreshDetailPreviewUrl = useCallback((index: number) => {
     setDetailWhiteImageItems((prev) => {
+      const item = prev[index];
+      if (!item) return prev;
+      URL.revokeObjectURL(item.url);
+      const url = URL.createObjectURL(item.file);
+      const next = [...prev];
+      next[index] = { file: item.file, url };
+      return next;
+    });
+  }, []);
+
+  const refreshVideoRefPreviewUrl = useCallback((index: number) => {
+    setVideoRefImageItems((prev) => {
       const item = prev[index];
       if (!item) return prev;
       URL.revokeObjectURL(item.url);
@@ -415,17 +492,47 @@ export function useOneMixApp() {
   );
 
   const onDropToWhites = useCallback(
-    async (e: DragEvent<HTMLDivElement>, target: "main" | "detail") => {
+    async (
+      e: DragEvent<HTMLDivElement>,
+      target: "main" | "detail" | "video",
+    ) => {
       e.preventDefault();
       if (target === "main") setIsStep2DragOver(false);
-      else setIsStep3DragOver(false);
+      else if (target === "detail") setIsStep3DragOver(false);
+      else setIsStep4DragOver(false);
 
-      const existingFiles = target === "main" ? whiteFiles : detailWhiteFiles;
+      const zoneLabel =
+        target === "main" ? "主图" : target === "detail" ? "详情图" : "视频参考";
+      const existingFiles =
+        target === "main"
+          ? whiteFiles
+          : target === "detail"
+            ? detailWhiteFiles
+            : videoRefFiles;
       const isDuplicate = (file: File) =>
         existingFiles.some(
           (existing) =>
             existing.name === file.name && existing.size === file.size,
         );
+
+      const appendFiles = (files: File[]) => {
+        const items = files.map((file) => ({
+          file,
+          url: URL.createObjectURL(file),
+        }));
+        if (target === "main") {
+          setWhiteFiles((prev) => [...prev, ...files]);
+          setWhiteImageItems((prev) => [...prev, ...items]);
+          setWhiteViewDescs((prev) => [...prev, ...files.map(() => "")]);
+        } else if (target === "detail") {
+          setDetailWhiteFiles((prev) => [...prev, ...files]);
+          setDetailWhiteImageItems((prev) => [...prev, ...items]);
+          setDetailWhiteViewDescs((prev) => [...prev, ...files.map(() => "")]);
+        } else {
+          setVideoRefFiles((prev) => [...prev, ...files]);
+          setVideoRefImageItems((prev) => [...prev, ...items]);
+        }
+      };
 
       const droppedFiles = Array.from(e.dataTransfer.files || []).filter((f) =>
         f.type.startsWith("image/"),
@@ -435,28 +542,13 @@ export function useOneMixApp() {
         const skippedCount = droppedFiles.length - uniqueFiles.length;
         if (!uniqueFiles.length) {
           appendLog(
-            `拖拽图片已全部存在（同名同大小），未添加到${target === "main" ? "主图" : "详情图"}白底区。`,
+            `拖拽图片已全部存在（同名同大小），未添加到${zoneLabel}区。`,
           );
           return;
         }
-        const items = uniqueFiles.map((file) => ({
-          file,
-          url: URL.createObjectURL(file),
-        }));
-        if (target === "main") {
-          setWhiteFiles((prev) => [...prev, ...uniqueFiles]);
-          setWhiteImageItems((prev) => [...prev, ...items]);
-          setWhiteViewDescs((prev) => [...prev, ...uniqueFiles.map(() => "")]);
-        } else {
-          setDetailWhiteFiles((prev) => [...prev, ...uniqueFiles]);
-          setDetailWhiteImageItems((prev) => [...prev, ...items]);
-          setDetailWhiteViewDescs((prev) => [
-            ...prev,
-            ...uniqueFiles.map(() => ""),
-          ]);
-        }
+        appendFiles(uniqueFiles);
         appendLog(
-          `已通过拖拽添加 ${uniqueFiles.length} 张图片到${target === "main" ? "主图" : "详情图"}白底区。${skippedCount > 0 ? `（跳过重复 ${skippedCount} 张）` : ""}`,
+          `已通过拖拽添加 ${uniqueFiles.length} 张图片到${zoneLabel}区。${skippedCount > 0 ? `（跳过重复 ${skippedCount} 张）` : ""}`,
         );
         return;
       }
@@ -485,28 +577,17 @@ export function useOneMixApp() {
         });
         if (isDuplicate(file)) {
           appendLog(
-            `已跳过重复图片（同名同大小）：${safeName}，未重复添加到${target === "main" ? "主图" : "详情图"}白底区。`,
+            `已跳过重复图片（同名同大小）：${safeName}，未重复添加到${zoneLabel}区。`,
           );
           return;
         }
-        const item = { file, url: URL.createObjectURL(file) };
-        if (target === "main") {
-          setWhiteFiles((prev) => [...prev, file]);
-          setWhiteImageItems((prev) => [...prev, item]);
-          setWhiteViewDescs((prev) => [...prev, ""]);
-        } else {
-          setDetailWhiteFiles((prev) => [...prev, file]);
-          setDetailWhiteImageItems((prev) => [...prev, item]);
-          setDetailWhiteViewDescs((prev) => [...prev, ""]);
-        }
-        appendLog(
-          `已将生成图拖拽加入${target === "main" ? "主图" : "详情图"}白底图：${safeName}`,
-        );
+        appendFiles([file]);
+        appendLog(`已将生成图拖拽加入${zoneLabel}：${safeName}`);
       } catch (err) {
-        appendLog(`拖拽加入白底图失败：${err}`);
+        appendLog(`拖拽加入失败：${err}`);
       }
     },
-    [appendLog, headers, whiteFiles, detailWhiteFiles],
+    [appendLog, headers, whiteFiles, detailWhiteFiles, videoRefFiles],
   );
 
   const onExtractKeyInfo = async () => {
@@ -556,30 +637,43 @@ export function useOneMixApp() {
     }
   };
 
-  const buildUserRequirements = (target: "main" | "detail") => {
+  const buildUserRequirements = (target: "main" | "detail" | "video") => {
     const keyInfo = keyJson
       ? JSON.stringify(keyJson, null, 2)
       : "（未提取到商品详细信息）";
-    const whiteDesc = whiteFiles.length
-      ? whiteFiles
-          .map((f, i) => {
-            const view = (whiteViewDescs[i] || "").trim() || "未填写视角";
-            return `图${i + 1}（${view}）：${f.name}`;
-          })
-          .join("；")
+    const refFiles =
+      target === "main"
+        ? whiteFiles
+        : target === "detail"
+          ? detailWhiteFiles.length > 0
+            ? detailWhiteFiles
+            : whiteFiles
+          : videoRefFiles.length > 0
+            ? videoRefFiles
+            : detailWhiteFiles.length > 0
+              ? detailWhiteFiles
+              : whiteFiles;
+    const whiteDesc = refFiles.length
+      ? refFiles.map((f, i) => `图${i + 1}：${f.name}`).join("；")
       : "（未上传）";
-    const targetCount = target === "main" ? nMain : nDetail;
+    const targetCount =
+      target === "main" ? nMain : target === "detail" ? nDetail : nVideo;
+    const countLabel =
+      target === "main"
+        ? "主图"
+        : target === "detail"
+          ? "详情图"
+          : "视频";
     return [
       `商品详细信息(JSON)：\n${keyInfo}`,
-      `白底图数量：${whiteFiles.length}`,
-      `白底图视角描述：${whiteDesc}`,
-      `要求生成数量：${targetCount}`,
-      `参考上传图片：${whiteDesc}`,
+      `参考图数量：${refFiles.length}`,
+      `参考图描述：${whiteDesc}`,
+      `要求生成${countLabel}数量：${targetCount}`,
       "特殊要求：无",
     ].join("\n");
   };
 
-  const onPlanByKind = async (target: "main" | "detail") => {
+  const onPlanByKind = async (target: "main" | "detail" | "video") => {
     if (!name.trim()) {
       appendLog("请先完成步骤一提取，或手动填写商品名称。");
       return;
@@ -587,18 +681,28 @@ export function useOneMixApp() {
     const planWhites =
       target === "main"
         ? whiteFiles
-        : detailWhiteFiles.length > 0
-          ? detailWhiteFiles
-          : whiteFiles;
+        : target === "detail"
+          ? detailWhiteFiles.length > 0
+            ? detailWhiteFiles
+            : whiteFiles
+          : videoRefFiles.length > 0
+            ? videoRefFiles
+            : detailWhiteFiles.length > 0
+              ? detailWhiteFiles
+              : whiteFiles;
     if (!planWhites.length) {
-      appendLog("请至少上传一张白底商品图（将结合参考图生成提示词）。\n");
+      appendLog(
+        target === "video"
+          ? "请至少选用一张详情图作为视频参考（首帧）。\n"
+          : "请至少上传一张白底商品图（将结合参考图生成提示词）。\n",
+      );
       return;
     }
     setActivePlanKind(target);
     setBusy(true);
     try {
       const { base, comp } = splitCompetitorSummary(desc);
-      const isMain = target === "main";
+      const planStrategy = target === "video" ? videoStrategy : strategy;
       const fd = new FormData();
       fd.append(
         "plan",
@@ -606,11 +710,17 @@ export function useOneMixApp() {
           product_name: name.trim(),
           product_desc: base,
           competitor_summary: comp,
-          n_main: isMain ? nMain : 0,
-          n_detail: isMain ? 0 : nDetail,
-          strategy,
+          n_main: target === "main" ? nMain : 0,
+          n_detail: target === "detail" ? nDetail : 0,
+          n_video: target === "video" ? nVideo : 0,
+          strategy: planStrategy,
           n_white_images: Math.max(1, planWhites.length),
-          custom_template: isMain ? MAIN_PLAN_TEMPLATE : DETAIL_PLAN_TEMPLATE,
+          custom_template:
+            target === "main"
+              ? MAIN_PLAN_TEMPLATE
+              : target === "detail"
+                ? DETAIL_PLAN_TEMPLATE
+                : VIDEO_PLAN_TEMPLATE,
           user_requirements: buildUserRequirements(target),
         }),
       );
@@ -620,24 +730,21 @@ export function useOneMixApp() {
         body: fd,
       });
       const raw = ((j as { slots: SlotRow[] }).slots || []).map((s) =>
-        withSlotImageDefaults(s, strategy),
+        withSlotImageDefaults(s, planStrategy),
       );
-      if (isMain) {
-        setSlots((prev) => {
-          const details = prev.filter((s) => s.kind === "detail");
-          return reindexSlots([...raw, ...details]);
-        });
-      } else {
-        setSlots((prev) => {
-          const mains = prev.filter((s) => s.kind === "main");
-          return reindexSlots([...mains, ...raw]);
-        });
-      }
+      setSlots((prev) => {
+        const keep = prev.filter((s) => s.kind !== target);
+        return reindexSlots([...keep, ...raw]);
+      });
+      const label =
+        target === "main" ? "主图" : target === "detail" ? "详情图" : "视频";
       appendLog(
-        `已结合 ${planWhites.length} 张参考图生成${isMain ? "主图" : "详情图"} ${raw.length} 个提示词（qwen-vl-plus）。`,
+        `已结合 ${planWhites.length} 张参考图生成${label} ${raw.length} 个提示词（qwen-vl-plus）。`,
       );
     } catch (e) {
-      appendLog(`生成${target === "main" ? "主图" : "详情图"}失败：${e}`);
+      const label =
+        target === "main" ? "主图" : target === "detail" ? "详情图" : "视频";
+      appendLog(`生成${label}失败：${e}`);
     } finally {
       setBusy(false);
     }
@@ -669,7 +776,8 @@ export function useOneMixApp() {
     setSlots((prev) =>
       prev.map((s) => {
         if (s.list_index !== listIndex) return s;
-        const clamped = clampSlotImageSize(strategy, s.aspect_ratio, resolution, {
+        const useStrategy = s.kind === "video" ? videoStrategy : strategy;
+        const clamped = clampSlotImageSize(useStrategy, s.aspect_ratio, resolution, {
           kind: s.kind,
         });
         return {
@@ -682,11 +790,12 @@ export function useOneMixApp() {
   };
 
   const batchUpdateSlotImageSize = (
-    kind: "main" | "detail",
+    kind: "main" | "detail" | "video",
     aspect_ratio: string,
     resolution: string,
   ) => {
-    const clamped = clampSlotImageSize(strategy, aspect_ratio, resolution, {
+    const useStrategy = kind === "video" ? videoStrategy : strategy;
+    const clamped = clampSlotImageSize(useStrategy, aspect_ratio, resolution, {
       kind,
     });
     setSlots((prev) =>
@@ -706,6 +815,7 @@ export function useOneMixApp() {
     setStrategy(next);
     setSlots((prev) =>
       prev.map((s) => {
+        if (s.kind === "video") return s;
         const clamped = clampSlotImageSize(next, s.aspect_ratio, s.resolution, {
           kind: s.kind,
         });
@@ -718,18 +828,53 @@ export function useOneMixApp() {
     );
   };
 
+  const setVideoStrategyAndClampSlots = (next: string) => {
+    setVideoStrategy(next);
+    setSlots((prev) =>
+      prev.map((s) => {
+        if (s.kind !== "video") return s;
+        const clamped = clampSlotImageSize(next, s.aspect_ratio, s.resolution, {
+          kind: "video",
+        });
+        return {
+          ...s,
+          aspect_ratio: clamped.aspect_ratio,
+          resolution: clamped.resolution,
+        };
+      }),
+    );
+  };
+
   const mainSlots = slots.filter((s) => s.kind === "main");
   const detailSlots = slots.filter((s) => s.kind === "detail");
+  const videoSlots = slots.filter((s) => s.kind === "video");
   const mainResultMap = new Map(
     Object.entries(mainResultRefs).map(([k, jobId]) => [Number(k), jobId]),
   );
   const detailResultMap = new Map(
     Object.entries(detailResultRefs).map(([k, jobId]) => [Number(k), jobId]),
   );
+  const videoResultMap = new Map(
+    Object.entries(videoResultRefs).map(([k, jobId]) => [Number(k), jobId]),
+  );
   const generatedMainItems: GeneratedMainItem[] = mainSlots
     .filter((s) => mainResultMap.has(s.list_index))
     .map((s) => {
       const jobId = mainResultMap.get(s.list_index);
+      if (!jobId) return null;
+      return {
+        listIndex: s.list_index,
+        displayIndex: s.index,
+        jobId,
+        imageUrl: `/api/jobs/${jobId}/result/${s.list_index}`,
+      };
+    })
+    .filter(Boolean) as GeneratedMainItem[];
+
+  const generatedDetailItems: GeneratedMainItem[] = detailSlots
+    .filter((s) => detailResultMap.has(s.list_index))
+    .map((s) => {
+      const jobId = detailResultMap.get(s.list_index);
       if (!jobId) return null;
       return {
         listIndex: s.list_index,
@@ -746,16 +891,24 @@ export function useOneMixApp() {
     const refineWhites =
       slot.kind === "main"
         ? whiteFiles
-        : detailWhiteFiles.length > 0
-          ? detailWhiteFiles
-          : whiteFiles;
+        : slot.kind === "detail"
+          ? detailWhiteFiles.length > 0
+            ? detailWhiteFiles
+            : whiteFiles
+          : videoRefFiles.length > 0
+            ? videoRefFiles
+            : detailWhiteFiles.length > 0
+              ? detailWhiteFiles
+              : whiteFiles;
     if (!refineWhites.length) {
-      appendLog("请至少上传一张白底商品图，以便结合参考图重构提示词。\n");
+      appendLog("请至少上传一张参考图，以便结合参考图重构提示词。\n");
       return;
     }
     setBusy(true);
     try {
       const { base, comp } = splitCompetitorSummary(desc);
+      const refineStrategy =
+        slot.kind === "video" ? videoStrategy : strategy;
       const fd = new FormData();
       fd.append(
         "plan",
@@ -765,7 +918,7 @@ export function useOneMixApp() {
           competitor_summary: comp,
           kind: slot.kind,
           index: slot.index,
-          strategy,
+          strategy: refineStrategy,
           old_prompt: slot.prompt,
           ref_white_index: slot.ref_white_index ?? 0,
         }),
@@ -778,7 +931,7 @@ export function useOneMixApp() {
       const prompt = ((j as { prompt: string }).prompt || "").trim();
       if (prompt) {
         updateSlotPrompt(listIndex, prompt);
-        appendLog(`图片 #${listIndex} 提示词重构完成（已结合参考图）。`);
+        appendLog(`槽位 #${listIndex} 提示词重构完成（已结合参考图）。`);
       }
     } catch (e) {
       appendLog(`重构失败：${e}`);
@@ -787,7 +940,7 @@ export function useOneMixApp() {
     }
   };
 
-  const pollJob = async (id: string, kind: "main" | "detail") => {
+  const pollJob = async (id: string, kind: "main" | "detail" | "video") => {
     for (let i = 0; i < 7200; i++) {
       const r = await fetch(`/api/jobs/${id}`, { headers });
       if (!r.ok) throw new Error(await r.text());
@@ -805,27 +958,38 @@ export function useOneMixApp() {
         results: j.results ?? [],
       };
       if (kind === "main") setMainJob(next);
-      else setDetailJob(next);
+      else if (kind === "detail") setDetailJob(next);
+      else setVideoJob(next);
       if (j.status === "completed") return j.results ?? [];
       if (j.status === "failed") throw new Error(j.error || "任务失败");
-      await new Promise((res) => setTimeout(res, 1500));
+      await new Promise((res) => setTimeout(res, kind === "video" ? 5000 : 1500));
     }
     throw new Error("轮询超时");
   };
 
   const onGenerate = async (
-    kind: "main" | "detail",
+    kind: "main" | "detail" | "video",
     onlyIndices: number[] | null = null,
   ) => {
     const sourceWhiteFiles =
       kind === "main"
         ? whiteFiles
-        : detailWhiteFiles.length > 0
-          ? detailWhiteFiles
-          : whiteFiles;
+        : kind === "detail"
+          ? detailWhiteFiles.length > 0
+            ? detailWhiteFiles
+            : whiteFiles
+          : videoRefFiles.length > 0
+            ? videoRefFiles
+            : detailWhiteFiles.length > 0
+              ? detailWhiteFiles
+              : whiteFiles;
     const targetSlots = slots.filter((s) => s.kind === kind);
     if (!sourceWhiteFiles.length || !targetSlots.length) {
-      appendLog("请先上传白底图并生成提示词。");
+      appendLog(
+        kind === "video"
+          ? "请先选择详情参考图并生成视频提示词。"
+          : "请先上传白底图并生成提示词。",
+      );
       return;
     }
     setBusy(true);
@@ -833,28 +997,25 @@ export function useOneMixApp() {
     const touchedIndices = (
       onlyIndices ?? targetSlots.map((s) => s.list_index)
     ).map((i) => Number(i));
-    if (kind === "main") {
-      setMainJob((prev) => ({
-        ...prev,
-        jobId: null,
-        status: "",
-        progress: { p: 0, t: 0 },
-        results: prev.results,
-      }));
-    } else {
-      setDetailJob((prev) => ({
-        ...prev,
-        jobId: null,
-        status: "",
-        progress: { p: 0, t: 0 },
-        results: prev.results,
-      }));
-    }
+    const resetJob = (prev: JobState): JobState => ({
+      ...prev,
+      jobId: null,
+      status: "",
+      progress: { p: 0, t: 0 },
+      results: prev.results,
+    });
+    if (kind === "main") setMainJob(resetJob);
+    else if (kind === "detail") setDetailJob(resetJob);
+    else setVideoJob(resetJob);
+
+    const genStrategy = kind === "video" ? videoStrategy : strategy;
+    const kindLabel =
+      kind === "main" ? "主图" : kind === "detail" ? "详情图" : "视频";
     try {
       const jobPayload = {
         slot_jobs: targetSlots.map((s) => {
           const clamped = clampSlotImageSize(
-            strategy,
+            genStrategy,
             s.aspect_ratio,
             s.resolution,
             { kind: s.kind },
@@ -869,10 +1030,11 @@ export function useOneMixApp() {
             ref_white_index: s.ref_white_index,
             aspect_ratio: clamped.aspect_ratio,
             resolution: clamped.resolution,
+            duration: kind === "video" ? s.duration ?? 5 : undefined,
           };
         }),
-        fmt: "JPG",
-        strategy,
+        fmt: kind === "video" ? "MP4" : "JPG",
+        strategy: genStrategy,
         only_indices: onlyIndices,
         skip_done: true,
       };
@@ -884,7 +1046,9 @@ export function useOneMixApp() {
       const created = (await r.json()) as { id: string };
       if (kind === "main")
         setMainJob((prev) => ({ ...prev, jobId: created.id }));
-      else setDetailJob((prev) => ({ ...prev, jobId: created.id }));
+      else if (kind === "detail")
+        setDetailJob((prev) => ({ ...prev, jobId: created.id }));
+      else setVideoJob((prev) => ({ ...prev, jobId: created.id }));
       appendLog(`任务已创建：${created.id}`);
       const completedResults = (await pollJob(
         created.id,
@@ -894,61 +1058,128 @@ export function useOneMixApp() {
       const succeededIndices = touchedIndices.filter((idx) =>
         completedSet.has(idx),
       );
-      if (kind === "main") {
-        setMainResultRefs((prev) => {
-          const next = { ...prev };
-          for (const idx of succeededIndices) next[idx] = created.id;
-          return next;
-        });
-      } else {
-        setDetailResultRefs((prev) => {
-          const next = { ...prev };
-          for (const idx of succeededIndices) next[idx] = created.id;
-          return next;
-        });
-      }
+      const mergeRefs = (prev: ResultRefMap) => {
+        const next = { ...prev };
+        for (const idx of succeededIndices) next[idx] = created.id;
+        return next;
+      };
+      if (kind === "main") setMainResultRefs(mergeRefs);
+      else if (kind === "detail") setDetailResultRefs(mergeRefs);
+      else setVideoResultRefs(mergeRefs);
       appendLog(
-        `${kind === "main" ? "主图" : "详情图"}${onlyIndices?.length ? `（图片 ${onlyIndices.join(",")}）` : ""}生成完成，可下载 ZIP。\n`,
+        `${kindLabel}${onlyIndices?.length ? `（槽位 ${onlyIndices.join(",")}）` : ""}生成完成，可下载 ZIP。\n`,
       );
     } catch (e) {
       appendLog(
-        `${kind === "main" ? "主图" : "详情图"}${onlyIndices?.length ? `（图片 ${onlyIndices.join(",")}）` : ""}生成失败：${e}`,
+        `${kindLabel}${onlyIndices?.length ? `（槽位 ${onlyIndices.join(",")}）` : ""}生成失败：${e}`,
       );
       if (kind === "main") setMainJob((prev) => ({ ...prev, status: "error" }));
-      else setDetailJob((prev) => ({ ...prev, status: "error" }));
+      else if (kind === "detail")
+        setDetailJob((prev) => ({ ...prev, status: "error" }));
+      else setVideoJob((prev) => ({ ...prev, status: "error" }));
     } finally {
       setBusy(false);
     }
   };
 
-  const onDownloadZip = (kind: "main" | "detail") => {
-    const targetJobId = kind === "main" ? mainJob.jobId : detailJob.jobId;
+  const onDownloadZip = (kind: "main" | "detail" | "video") => {
+    const targetJobId =
+      kind === "main"
+        ? mainJob.jobId
+        : kind === "detail"
+          ? detailJob.jobId
+          : videoJob.jobId;
     if (!targetJobId) {
       appendLog("暂无可打包下载的任务。\n");
       toast.warning("暂无批量下载任务");
       return;
     }
+    const label =
+      kind === "main" ? "主图" : kind === "detail" ? "详情图" : "视频";
     void downloadAuthenticatedFile(
       `/api/jobs/${targetJobId}/bundle`,
       `onemix_${kind}_${targetJobId}.zip`,
       headers,
     )
-      .then(() => appendLog(`已开始批量下载 ${kind === "main" ? "主图" : "详情图"} ZIP。\n`))
+      .then(() => appendLog(`已开始批量下载 ${label} ZIP。\n`))
       .catch((e) => {
         appendLog(`批量下载失败：${e}`);
         toast.error("批量下载失败");
       });
   };
 
+  const onDownloadAllPackage = useCallback(() => {
+    const items: Array<{
+      job_id: string;
+      list_index: number;
+      kind: "main" | "detail" | "video";
+      index: number;
+    }> = [];
+    for (const s of slots) {
+      const jobId =
+        s.kind === "main"
+          ? mainResultRefs[s.list_index]
+          : s.kind === "detail"
+            ? detailResultRefs[s.list_index]
+            : videoResultRefs[s.list_index];
+      if (!jobId) continue;
+      items.push({
+        job_id: jobId,
+        list_index: s.list_index,
+        kind: s.kind,
+        index: s.index,
+      });
+    }
+    if (!items.length) {
+      appendLog("暂无生成结果可打包，请先完成主图/详情图/视频生成。\n");
+      toast.warning("暂无生成结果可打包");
+      return;
+    }
+    const safeName = (name.trim() || "onemix").replace(/[^\w\u4e00-\u9fff-]+/g, "_");
+    const filename = `${safeName}_全部素材.zip`;
+    setBusy(true);
+    void downloadAuthenticatedPost(
+      "/api/jobs/bundle-all",
+      filename,
+      { items, product_name: name.trim() },
+      headers,
+    )
+      .then(() => {
+        const counts = {
+          main: items.filter((i) => i.kind === "main").length,
+          detail: items.filter((i) => i.kind === "detail").length,
+          video: items.filter((i) => i.kind === "video").length,
+        };
+        appendLog(
+          `已打包下载全部素材：主图 ${counts.main}、详情 ${counts.detail}、视频 ${counts.video} → ${filename}\n`,
+        );
+        toast.success("全部素材已开始下载");
+      })
+      .catch((e) => {
+        appendLog(`一键打包失败：${e}`);
+        toast.error("一键打包失败");
+      })
+      .finally(() => setBusy(false));
+  }, [
+    appendLog,
+    detailResultRefs,
+    headers,
+    mainResultRefs,
+    name,
+    slots,
+    videoResultRefs,
+  ]);
+
   const onDownloadOneResult = useCallback(
-    (kind: "main" | "detail", item: ResultThumbItem) => {
+    (kind: "main" | "detail" | "video", item: ResultThumbItem) => {
       const safeLabel = item.label.replace(/\s+/g, "_");
-      const filename = `onemix_${kind}_${safeLabel}.jpg`;
+      const ext = kind === "video" ? "mp4" : "jpg";
+      const filename = `onemix_${kind}_${safeLabel}.${ext}`;
       void downloadAuthenticatedFile(item.imageUrl, filename, headers)
         .then(() => appendLog(`已下载：${filename}\n`))
         .catch((e) => {
-          appendLog(`单张下载失败：${e}`);
-          toast.error("单张下载失败");
+          appendLog(`下载失败：${e}`);
+          toast.error("下载失败");
         });
     },
     [appendLog, headers],
@@ -1312,6 +1543,33 @@ export function useOneMixApp() {
     [onDropToWhites],
   );
 
+  const onStep4DragEnter = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsStep4DragOver(true);
+  }, []);
+
+  const onStep4DragOver = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      if (!isStep4DragOver) setIsStep4DragOver(true);
+    },
+    [isStep4DragOver],
+  );
+
+  const onStep4DragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+      setIsStep4DragOver(false);
+    }
+  }, []);
+
+  const onStep4Drop = useCallback(
+    (e: DragEvent<HTMLDivElement>) => {
+      setIsStep4DragOver(false);
+      void onDropToWhites(e, "video");
+    },
+    [onDropToWhites],
+  );
+
   const onNMainInputChange = useCallback((value: string) => {
     const trimmed = value.trim();
     if (trimmed === "") {
@@ -1333,6 +1591,18 @@ export function useOneMixApp() {
     if (isDigitsOnly(trimmed)) {
       setNDetailInput(trimmed);
       setNDetail(Number(trimmed));
+    }
+  }, []);
+
+  const onNVideoInputChange = useCallback((value: string) => {
+    const trimmed = value.trim();
+    if (trimmed === "") {
+      setNVideoInput("");
+      return;
+    }
+    if (isDigitsOnly(trimmed)) {
+      setNVideoInput(trimmed);
+      setNVideo(Number(trimmed));
     }
   }, []);
 
@@ -1466,24 +1736,135 @@ export function useOneMixApp() {
     [],
   );
 
+  const onVideoResultDragStart = useCallback(
+    (e: DragEvent<HTMLElement>, imageUrl: string, displayIndex: number) => {
+      e.dataTransfer.setData("text/plain", imageUrl);
+      e.dataTransfer.setData("text/onemix-result-url", imageUrl);
+      e.dataTransfer.setData(
+        "text/onemix-result-name",
+        `视频_${displayIndex}.mp4`,
+      );
+    },
+    [],
+  );
+
+  const onOpenDetailImageLibrary = useCallback(() => {
+    setActiveDetailImageTab("detail");
+    setSelectedDetailImages([]);
+    setShowDetailImageLibrary(true);
+  }, []);
+
+  const onCloseDetailImageLibrary = useCallback(() => {
+    setShowDetailImageLibrary(false);
+  }, []);
+
+  const onDetailImageTabChange = useCallback(
+    (tab: "main" | "detail" | "uploaded") => {
+      if (activeDetailImageTab !== tab) {
+        setSelectedDetailImages([]);
+        setActiveDetailImageTab(tab);
+      }
+    },
+    [activeDetailImageTab],
+  );
+
+  const onToggleDetailImageSelection = useCallback(
+    (index: number) => {
+      if (selectedDetailImages.includes(index)) {
+        setSelectedDetailImages(selectedDetailImages.filter((i) => i !== index));
+      } else {
+        setSelectedDetailImages([...selectedDetailImages, index]);
+      }
+    },
+    [selectedDetailImages],
+  );
+
+  const onConfirmDetailImageLibrary = useCallback(async () => {
+    const selectedImageIndices = [...selectedDetailImages];
+    if (selectedImageIndices.length === 0) {
+      setShowDetailImageLibrary(false);
+      return;
+    }
+
+    const appendItems = (newItems: WhiteImageItem[]) => {
+      if (!newItems.length) return;
+      setVideoRefFiles((prev) => [...prev, ...newItems.map((item) => item.file)]);
+      setVideoRefImageItems((prev) => [...prev, ...newItems]);
+    };
+
+    try {
+      if (activeDetailImageTab === "main" || activeDetailImageTab === "detail") {
+        const source =
+          activeDetailImageTab === "main"
+            ? generatedMainItems
+            : generatedDetailItems;
+        const prefix = activeDetailImageTab === "main" ? "main" : "detail";
+        const fetchedItems = await Promise.all(
+          selectedImageIndices.map(async (index) => {
+            const selected = source[index];
+            if (!selected) return null;
+            const resp = await fetch(selected.imageUrl, { headers });
+            if (!resp.ok) throw new Error(await resp.text());
+            const blob = await resp.blob();
+            const ext = blob.type.includes("png") ? "png" : "jpg";
+            const file = new File(
+              [blob],
+              `${prefix}_${selected.displayIndex}.${ext}`,
+              { type: blob.type || "image/jpeg" },
+            );
+            return { file, url: URL.createObjectURL(file) };
+          }),
+        );
+        appendItems(fetchedItems.filter(Boolean) as WhiteImageItem[]);
+      } else {
+        const selectedImages = selectedImageIndices
+          .map((index) => {
+            const item = detailWhiteImageItems[index];
+            if (!item) return null;
+            return {
+              file: item.file,
+              url: URL.createObjectURL(item.file),
+            };
+          })
+          .filter(Boolean) as WhiteImageItem[];
+        appendItems(selectedImages);
+      }
+    } catch (e) {
+      appendLog(`从图库添加参考图失败：${e}`);
+      toast.error("添加参考图失败");
+    }
+
+    setSelectedDetailImages([]);
+    setShowDetailImageLibrary(false);
+  }, [
+    activeDetailImageTab,
+    appendLog,
+    detailWhiteImageItems,
+    generatedDetailItems,
+    generatedMainItems,
+    headers,
+    selectedDetailImages,
+  ]);
+
   const getRefWhiteItems = useCallback(
     (slot: SlotRow) => {
-      return slot.kind === "detail" && detailWhiteImageItems.length > 0
-        ? detailWhiteImageItems
-        : whiteImageItems;
+      if (slot.kind === "video" && videoRefImageItems.length > 0) {
+        return videoRefImageItems;
+      }
+      if (slot.kind === "detail" && detailWhiteImageItems.length > 0) {
+        return detailWhiteImageItems;
+      }
+      return whiteImageItems;
     },
-    [detailWhiteImageItems, whiteImageItems],
+    [detailWhiteImageItems, videoRefImageItems, whiteImageItems],
   );
 
   const getRefWhiteIndex = useCallback(
     (slot: SlotRow) => {
-      const refItems =
-        slot.kind === "detail" && detailWhiteImageItems.length > 0
-          ? detailWhiteImageItems
-          : whiteImageItems;
+      const refItems = getRefWhiteItems(slot);
       return normalizedRefWhiteIndex(slot.ref_white_index, refItems.length);
     },
-    [detailWhiteImageItems, whiteImageItems],
+    [getRefWhiteItems],
   );
 
   return {
@@ -1499,13 +1880,20 @@ export function useOneMixApp() {
     setNMain,
     nDetail,
     setNDetail,
+    nVideo,
+    setNVideo,
     nMainInput,
     setNMainInput,
     nDetailInput,
     setNDetailInput,
+    nVideoInput,
+    setNVideoInput,
     strategy,
     setStrategy: setStrategyAndClampSlots,
+    videoStrategy,
+    setVideoStrategy: setVideoStrategyAndClampSlots,
     strategyGroups,
+    videoStrategyGroups: VIDEO_STRATEGY_GROUPS,
     syncingStrategies,
     onSyncArkSeedreamModels,
     onSyncQwenImageModels,
@@ -1520,6 +1908,8 @@ export function useOneMixApp() {
     setWhiteViewDescs,
     detailWhiteFiles,
     detailWhiteImageItems,
+    videoRefFiles,
+    videoRefImageItems,
     previewImageUrl,
     previewImageName,
     slots,
@@ -1527,16 +1917,21 @@ export function useOneMixApp() {
     busy,
     mainJob,
     detailJob,
+    videoJob,
     mainResultRefs,
     detailResultRefs,
+    videoResultRefs,
     activePlanKind,
     collapseMainPanel,
     setCollapseMainPanel,
     collapseDetailPanel,
     setCollapseDetailPanel,
+    collapseVideoPanel,
+    setCollapseVideoPanel,
     serverSettings,
     isStep2DragOver,
     isStep3DragOver,
+    isStep4DragOver,
     showSettings,
     setShowSettings,
     showLog,
@@ -1556,11 +1951,17 @@ export function useOneMixApp() {
     showMainImageLibrary,
     selectedMainImages,
     activeImageTab,
+    showDetailImageLibrary,
+    selectedDetailImages,
+    activeDetailImageTab,
     mainSlots,
     detailSlots,
+    videoSlots,
     mainResultMap,
     detailResultMap,
+    videoResultMap,
     generatedMainItems,
+    generatedDetailItems,
     appendLog,
     notify,
     loadServerSettings,
@@ -1568,12 +1969,16 @@ export function useOneMixApp() {
     onUploadTextFilesClick,
     onSelectWhiteFiles,
     onSelectDetailWhiteFiles,
+    onSelectVideoRefFiles,
     onRemoveWhiteFileAt,
     onReplaceWhiteFileAt,
     onRemoveDetailWhiteAt,
     onReplaceDetailWhiteAt,
+    onRemoveVideoRefAt,
+    onReplaceVideoRefAt,
     refreshWhitePreviewUrl,
     refreshDetailPreviewUrl,
+    refreshVideoRefPreviewUrl,
     addGeneratedImageToWhites,
     onDropToWhites,
     onExtractKeyInfo,
@@ -1586,6 +1991,7 @@ export function useOneMixApp() {
     onRefineSlotPrompt,
     onGenerate,
     onDownloadZip,
+    onDownloadAllPackage,
     onDownloadOneResult,
     onSaveKeyToServer,
     onClearServerKey,
@@ -1610,16 +2016,27 @@ export function useOneMixApp() {
     onStep3DragOver,
     onStep3DragLeave,
     onStep3Drop,
+    onStep4DragEnter,
+    onStep4DragOver,
+    onStep4DragLeave,
+    onStep4Drop,
     onNMainInputChange,
     onNDetailInputChange,
+    onNVideoInputChange,
     onOpenMainImageLibrary,
     onCloseMainImageLibrary,
     onMainImageTabGenerated,
     onMainImageTabUploaded,
     onToggleMainImageSelection,
     onConfirmMainImageLibrary,
+    onOpenDetailImageLibrary,
+    onCloseDetailImageLibrary,
+    onDetailImageTabChange,
+    onToggleDetailImageSelection,
+    onConfirmDetailImageLibrary,
     onMainResultDragStart,
     onDetailResultDragStart,
+    onVideoResultDragStart,
     getRefWhiteItems,
     getRefWhiteIndex,
     normalizedRefWhiteIndex,

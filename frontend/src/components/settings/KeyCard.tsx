@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +16,10 @@ type KeyCardProps = {
   preview?: string | null;
   editing: boolean;
   onToggleEdit: () => void;
+  description?: string;
+  /** 控制台开通/管理链接 */
+  consoleHref?: string;
+  consoleLabel?: string;
   children?: ReactNode;
 };
 
@@ -24,6 +29,9 @@ export function KeyCard({
   preview,
   editing,
   onToggleEdit,
+  description = "服务端默认 Key，用于 LLM 与图像生成",
+  consoleHref,
+  consoleLabel = "打开控制台",
   children,
 }: KeyCardProps) {
   return (
@@ -40,7 +48,20 @@ export function KeyCard({
             </Button>
           </div>
         </div>
-        <CardDescription>服务端默认 Key，用于 LLM 与图像生成</CardDescription>
+        <CardDescription className="space-y-1.5">
+          <span className="block">{description}</span>
+          {consoleHref ? (
+            <a
+              href={consoleHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-primary underline-offset-4 hover:underline"
+            >
+              {consoleLabel}
+              <ExternalLink className="h-3 w-3" aria-hidden />
+            </a>
+          ) : null}
+        </CardDescription>
       </CardHeader>
       {editing && children && <CardContent>{children}</CardContent>}
     </Card>

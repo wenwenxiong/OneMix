@@ -22,13 +22,20 @@ export function ImagePreviewDialog({
         <DialogHeader>
           <DialogTitle className="truncate pr-8">{name}</DialogTitle>
         </DialogHeader>
-        {url && (
-          <img
-            src={url}
-            alt={name}
-            className="max-h-[70vh] w-full rounded-md object-contain"
-          />
-        )}
+        {url &&
+          (/\.mp4(\?|$)/i.test(url) || /视频/.test(name) ? (
+            <video
+              src={url}
+              controls
+              className="max-h-[70vh] w-full rounded-md bg-black object-contain"
+            />
+          ) : (
+            <img
+              src={url}
+              alt={name}
+              className="max-h-[70vh] w-full rounded-md object-contain"
+            />
+          ))}
       </DialogContent>
     </Dialog>
   );

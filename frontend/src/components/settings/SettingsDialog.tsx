@@ -79,6 +79,8 @@ export function SettingsDialog({
             onToggleEdit={() =>
               setEditingKey(editingKey === "dashscope" ? null : "dashscope")
             }
+            consoleHref="https://bailian.console.aliyun.com/cn-beijing?tab=model#/api-key"
+            consoleLabel="打开阿里百炼控制台"
           >
             <KeyEditForm
               defaultValue={apiKey}
@@ -110,11 +112,14 @@ export function SettingsDialog({
             ) : null}
           </KeyCard>
           <KeyCard
-            title="豆包 ARK"
+            title="火山方舟"
             configured={!!serverSettings?.has_ark_key}
             preview={serverSettings?.ark_key_preview}
             editing={editingKey === "ark"}
             onToggleEdit={() => setEditingKey(editingKey === "ark" ? null : "ark")}
+            description="服务端默认 Key，用于 LLM、图像与视频生成"
+            consoleHref="https://console.volcengine.com/ark/region:cn-beijing/openManagement"
+            consoleLabel="打开火山方舟控制台"
           >
             <KeyEditForm
               defaultValue={arkKey}
@@ -122,7 +127,7 @@ export function SettingsDialog({
               onSave={handleSaveArk}
               onClear={onClearArk}
               busy={busy}
-              placeholder="输入豆包 ARK Key"
+              placeholder="输入火山方舟 API Key"
             />
             {onSyncArkModels ? (
               <div className="mt-3 space-y-1.5 border-t border-border pt-3">

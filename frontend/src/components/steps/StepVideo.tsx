@@ -1,12 +1,5 @@
 import type { DragEvent } from "react";
-import {
-  ArrowLeft,
-  ArrowRight,
-  ChevronDown,
-  ChevronUp,
-  Sparkles,
-  Upload,
-} from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, FolderOpen, Package, Sparkles } from "lucide-react";
 import type { JobState, SlotRow, StrategyGroup, WhiteImageItem } from "@/types";
 import type { ResultThumbItem } from "@/components/images/ResultThumbGrid";
 import { DropZone } from "@/components/images/DropZone";
@@ -21,46 +14,46 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 
-type StepMainProps = {
+type StepVideoProps = {
   name: string;
   strategy: string;
-  nMainInput: string;
+  nVideoInput: string;
   onNameChange: (v: string) => void;
   onStrategyChange: (v: string) => void;
   onCountChange: (v: string) => void;
   strategyGroups?: StrategyGroup[];
   syncingStrategies?: boolean;
   onSyncStrategies?: () => void | Promise<void>;
-  whiteImageItems: WhiteImageItem[];
+  videoRefImageItems: WhiteImageItem[];
   isDragOver: boolean;
   onDragEnter: (e: DragEvent<HTMLDivElement>) => void;
   onDragOver: (e: DragEvent<HTMLDivElement>) => void;
   onDragLeave: (e: DragEvent<HTMLDivElement>) => void;
   onDrop: (e: DragEvent<HTMLDivElement>) => void;
-  onSelectWhiteFiles: (files: FileList | null) => void;
-  onRemoveWhite: (index: number) => void;
-  onReplaceWhite: (index: number, file: File | null) => void;
+  onSelectVideoRefFiles: (files: FileList | null) => void;
+  onRemoveVideoRef: (index: number) => void;
+  onReplaceVideoRef: (index: number, file: File | null) => void;
+  onOpenDetailImageLibrary: () => void;
   onPreview: (url: string, name: string) => void;
   busy: boolean;
   activePlanKind: "main" | "detail" | "video" | null;
-  mainSlots: SlotRow[];
+  videoSlots: SlotRow[];
   collapsePanel: boolean;
   onToggleCollapse: () => void;
   onPlan: () => void | Promise<void>;
   onGenerateAll: () => void | Promise<void>;
   onDownloadZip: () => void;
   onDownloadOneResult?: (item: ResultThumbItem) => void;
-  mainJob: JobState;
+  videoJob: JobState;
   resultItems: ResultThumbItem[];
-  onMainResultDragStart: (
+  onVideoResultDragStart: (
     e: DragEvent<HTMLElement>,
     imageUrl: string,
     displayIndex: number,
   ) => void;
-  onAddGeneratedToWhites: (url: string, name: string) => void;
   getRefWhiteItems: (slot: SlotRow) => WhiteImageItem[];
   getRefWhiteIndex: (slot: SlotRow) => number;
   onPromptChange: (listIndex: number, prompt: string) => void;
@@ -71,20 +64,23 @@ type StepMainProps = {
   onRefine: (listIndex: number) => void;
   onGenerateOne: (listIndex: number) => void;
   onPreviewError: (slot: SlotRow, index: number) => void;
-  hasWhiteFiles: boolean;
+  canGenerate: boolean;
+  canFinishPackage: boolean;
   onBack: () => void;
-  onNext: () => void;
+  onFinishPackage: () => void;
 };
 
-export function StepMain(props: StepMainProps) {
-  const showSlots = props.activePlanKind === "main" || props.mainSlots.length > 0;
+export function StepVideo(props: StepVideoProps) {
+  const showSlots = props.activePlanKind === "video" || props.videoSlots.length > 0;
 
   return (
     <Card className="page-enter">
       <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
         <div className="space-y-2">
-          <CardTitle>步骤二：生成主图</CardTitle>
-          <CardDescription>上传白底商品图并生成主图提示词与图片。</CardDescription>
+          <CardTitle>步骤四：生成视频</CardTitle>
+          <CardDescription>
+            基于步骤三详情图生成短视频，默认模型为即梦 Seedance 2.0 mini。
+          </CardDescription>
         </div>
         <Button type="button" variant="outline" size="sm" onClick={props.onBack}>
           <ArrowLeft className="h-4 w-4" />
@@ -99,28 +95,36 @@ export function StepMain(props: StepMainProps) {
           onDragLeave={props.onDragLeave}
           onDrop={props.onDrop}
         >
-          <div className="space-y-2">
-            <Label htmlFor="main-white-upload" className="flex items-center gap-2">
-              <Upload className="h-4 w-4 text-muted-foreground" />
-              主图白底商品图（多选）
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              支持多选或拖拽图片到此区域；也可将生成结果拖回作为参考图。
-            </p>
-            <Input
-              id="main-white-upload"
-              type="file"
-              accept="image/*"
-              multiple
-              disabled={props.busy}
-              onChange={(e) => props.onSelectWhiteFiles(e.target.files)}
-            />
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="min-w-0 flex-1 space-y-2">
+              <Label htmlFor="video-ref-upload">视频参考图（多选）</Label>
+              <p className="text-xs text-muted-foreground">
+                可上传、拖拽，或从图库选用已生成主图/详情图作为首帧参考。
+              </p>
+              <Input
+                id="video-ref-upload"
+                type="file"
+                accept="image/*"
+                multiple
+                disabled={props.busy}
+                onChange={(e) => props.onSelectVideoRefFiles(e.target.files)}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0"
+              onClick={props.onOpenDetailImageLibrary}
+            >
+              <FolderOpen className="h-4 w-4" />
+              从图库选择
+            </Button>
           </div>
           <WhiteImageGrid
-            items={props.whiteImageItems}
+            items={props.videoRefImageItems}
             disabled={props.busy}
-            onRemove={props.onRemoveWhite}
-            onReplace={props.onReplaceWhite}
+            onRemove={props.onRemoveVideoRef}
+            onReplace={props.onReplaceVideoRef}
             onPreview={props.onPreview}
           />
         </DropZone>
@@ -128,8 +132,8 @@ export function StepMain(props: StepMainProps) {
         <StepFormFields
           name={props.name}
           strategy={props.strategy}
-          countInput={props.nMainInput}
-          countLabel="主图数量"
+          countInput={props.nVideoInput}
+          countLabel="视频数量"
           countMax={10}
           strategyGroups={props.strategyGroups}
           syncingStrategies={props.syncingStrategies}
@@ -146,7 +150,7 @@ export function StepMain(props: StepMainProps) {
             onClick={() => void props.onPlan()}
           >
             <Sparkles className="h-4 w-4" />
-            生成主图提示词
+            生成视频提示词
           </Button>
           {showSlots && (
             <Button
@@ -168,11 +172,11 @@ export function StepMain(props: StepMainProps) {
         <GenerationPanel
           showPanel={showSlots}
           collapsePanel={props.collapsePanel}
-          slots={props.mainSlots}
+          slots={props.videoSlots}
           strategy={props.strategy}
-          emptyHint='点击「生成主图提示词」后，这里会展示主图提示词。'
+          emptyHint='点击「生成视频提示词」后，这里会展示视频提示词。'
           busy={props.busy}
-          canGenerate={props.hasWhiteFiles}
+          canGenerate={props.canGenerate}
           getRefWhiteItems={props.getRefWhiteItems}
           getRefWhiteIndex={props.getRefWhiteIndex}
           onPromptChange={props.onPromptChange}
@@ -186,25 +190,28 @@ export function StepMain(props: StepMainProps) {
           onGenerateAll={props.onGenerateAll}
           onDownloadZip={props.onDownloadZip}
           onDownloadOne={props.onDownloadOneResult}
-          job={props.mainJob}
-          generateLabel="一键生成主图"
+          job={props.videoJob}
+          generateLabel="一键生成视频"
           resultItems={props.resultItems}
-          onResultDragStart={props.onMainResultDragStart}
+          onResultDragStart={props.onVideoResultDragStart}
           onPreview={props.onPreview}
-          onAddAsRef={props.onAddGeneratedToWhites}
+          onAddAsRef={() => undefined}
+          mediaType="video"
+          hideAddAsRef
         />
 
         <div className="flex flex-wrap justify-between gap-2 border-t border-border/60 pt-5">
           <Button type="button" variant="outline" onClick={props.onBack}>
-            上一步：信息提取
+            上一步：生成详情
           </Button>
           <Button
             type="button"
-            disabled={props.busy || props.resultItems.length === 0}
-            onClick={props.onNext}
+            size="lg"
+            disabled={props.busy || !props.canFinishPackage}
+            onClick={props.onFinishPackage}
           >
-            下一步：生成详情
-            <ArrowRight className="h-4 w-4" />
+            <Package className="h-4 w-4" />
+            完成并一键打包
           </Button>
         </div>
       </CardContent>

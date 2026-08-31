@@ -1,13 +1,15 @@
 export type SlotRow = {
   list_index: number;
-  kind: "main" | "detail";
+  kind: "main" | "detail" | "video";
   index: number;
   prompt: string;
   ref_white_index: number;
   /** 宽高比，如 1:1 / 3:4，对应模型生成尺寸 */
   aspect_ratio?: string;
-  /** 分辨率档位：1K / 2K / 3K / 4K */
+  /** 分辨率档位：1K / 2K / 3K / 4K，或视频 480p / 720p */
   resolution?: string;
+  /** 视频时长（秒），仅 video 槽位 */
+  duration?: number;
   export_path?: string | null;
 };
 

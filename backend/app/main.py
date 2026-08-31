@@ -30,6 +30,7 @@ from app.providers.dashscope_provider import DashScopeProvider
 from app.ref_paths import default_ref_white_index
 from app.routers import settings as settings_routes
 from app.schemas import (
+    BundleAllBody,
     CreateJobBody,
     ExtractInfoOut,
     JobStatusOut,
@@ -264,6 +265,7 @@ async def api_plan_slots(
                 competitor_summary=body.competitor_summary,
                 n_main=body.n_main,
                 n_detail=body.n_detail,
+                n_video=body.n_video,
                 strategy=body.strategy,
                 custom_template=body.custom_template,
                 user_requirements=body.user_requirements,
@@ -455,6 +457,108 @@ def api_job_bundle(job_id: str) -> StreamingResponse:
     )
 
 
+def _resolve_result_file(
+    job_id: str,
+    list_index: int,
+    *,
+    kind: str | None = None,
+    index: int | None = None,
+) -> Path | None:
+    """定位任务中某槽位的导出文件（内存结果优先，磁盘回退）。"""
+    rec = get_job(job_id)
+    if rec is not None and rec.results:
+        target = next(
+            (x for x in rec.results if int(x.get("list_index", -1)) == list_index),
+            None,
+        )
+        if target:
+            p = Path(str(target.get("export_path", ""))).expanduser().resolve()
+            if p.is_file():
+                return p
+    exp = Path.home() / ".cache" / "OneMix" / "jobs" / job_id / "export"
+    if rec is not None and rec.export_session and rec.export_session.is_dir():
+        exp = rec.export_session
+    if not exp.is_dir():
+        return None
+    # 按 kind + 展示序号匹配（export/主图/main_01.jpg）
+    if kind and index is not None and index >= 1:
+        prefix = {"main": "main", "detail": "detail", "video": "video"}.get(kind)
+        folder = {"main": "主图", "detail": "详情", "video": "视频"}.get(kind)
+        if prefix and folder:
+            for cand in (
+                exp / folder / f"{prefix}_{index:02d}.jpg",
+                exp / folder / f"{prefix}_{index:02d}.jpeg",
+                exp / folder / f"{prefix}_{index:02d}.png",
+                exp / folder / f"{prefix}_{index:02d}.mp4",
+            ):
+                if cand.is_file():
+                    return cand
+            hits = sorted((exp / folder).glob(f"{prefix}_{index:02d}.*")) if (exp / folder).is_dir() else []
+            if hits:
+                return hits[0]
+    candidates = (
+        sorted(exp.rglob("*.jpg"))
+        + sorted(exp.rglob("*.jpeg"))
+        + sorted(exp.rglob("*.png"))
+        + sorted(exp.rglob("*.mp4"))
+    )
+    if 0 <= list_index < len(candidates):
+        return candidates[list_index]
+    return None
+
+
+@app.post("/api/jobs/bundle-all")
+def api_jobs_bundle_all(body: BundleAllBody) -> StreamingResponse:
+    """将主图 / 详情图 / 视频按分类打包为一个 ZIP。"""
+    folder_by_kind = {"main": "主图", "detail": "详情", "video": "视频"}
+    prefix_by_kind = {"main": "main", "detail": "detail", "video": "video"}
+    default_ext = {"main": ".jpg", "detail": ".jpg", "video": ".mp4"}
+
+    buf = io.BytesIO()
+    packed = 0
+    used_names: set[str] = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for item in body.items:
+            src = _resolve_result_file(
+                item.job_id,
+                item.list_index,
+                kind=item.kind,
+                index=item.index,
+            )
+            if src is None or not src.is_file():
+                continue
+            folder = folder_by_kind[item.kind]
+            prefix = prefix_by_kind[item.kind]
+            ext = src.suffix.lower() or default_ext[item.kind]
+            base_name = f"{prefix}_{item.index:02d}{ext}"
+            arc = f"{folder}/{base_name}"
+            if arc in used_names:
+                stem = f"{prefix}_{item.index:02d}"
+                n = 2
+                while f"{folder}/{stem}_{n}{ext}" in used_names:
+                    n += 1
+                arc = f"{folder}/{stem}_{n}{ext}"
+            used_names.add(arc)
+            zf.write(src, arcname=arc)
+            packed += 1
+
+    if packed == 0:
+        raise HTTPException(400, "没有可打包的生成结果，请先完成主图/详情图/视频生成")
+
+    safe_name = "".join(
+        c if (c.isascii() and (c.isalnum() or c in "-_")) else "_"
+        for c in (body.product_name or "onemix").strip()
+    ).strip("_") or "onemix"
+    # Content-Disposition 仅允许 latin-1；中文文件名由前端 a.download 指定
+    filename = f"{safe_name}_all_assets.zip"
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/api/jobs/{job_id}/result/{list_index}")
 def api_job_result_preview(job_id: str, list_index: int) -> FileResponse:
     rec = get_job(job_id)
@@ -463,11 +567,17 @@ def api_job_result_preview(job_id: str, list_index: int) -> FileResponse:
         exp = Path.home() / ".cache" / "OneMix" / "jobs" / job_id / "export"
         if not exp.is_dir():
             raise HTTPException(404, "任务不存在")
-        candidates = sorted(exp.rglob("*.jpg")) + sorted(exp.rglob("*.jpeg")) + sorted(exp.rglob("*.png"))
+        candidates = (
+            sorted(exp.rglob("*.jpg"))
+            + sorted(exp.rglob("*.jpeg"))
+            + sorted(exp.rglob("*.png"))
+            + sorted(exp.rglob("*.mp4"))
+        )
         if list_index < 0 or list_index >= len(candidates):
             raise HTTPException(404, "槽位结果不存在")
         p = candidates[list_index]
-        return FileResponse(path=str(p))
+        media = "video/mp4" if p.suffix.lower() == ".mp4" else None
+        return FileResponse(path=str(p), media_type=media) if media else FileResponse(path=str(p))
     if not rec.results:
         raise HTTPException(404, "任务结果不存在")
 
@@ -478,4 +588,6 @@ def api_job_result_preview(job_id: str, list_index: int) -> FileResponse:
     p = Path(str(target.get("export_path", ""))).expanduser().resolve()
     if not p.is_file():
         raise HTTPException(404, "结果文件不存在")
+    if p.suffix.lower() == ".mp4":
+        return FileResponse(path=str(p), media_type="video/mp4")
     return FileResponse(path=str(p))

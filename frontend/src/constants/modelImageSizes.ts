@@ -191,12 +191,41 @@ const PROFILE_QWEN_IMAGE_2: ModelImageSizeProfile = {
   source: "阿里云百炼 qwen-image-api 推荐分辨率",
 };
 
+/** Seedance 视频：分辨率档位为 480p/720p，比例为 ratio */
+const SEEDANCE_ASPECTS: ImageSizeChoice[] = [
+  choice("16:9", 1280, 720),
+  choice("9:16", 720, 1280),
+  choice("1:1", 720, 720),
+  choice("4:3", 960, 720),
+  choice("3:4", 720, 960),
+  choice("21:9", 1680, 720),
+  choice("adaptive", 720, 1280, "adaptive（按首帧自适应）"),
+];
+
+export const PROFILE_SEEDANCE_VIDEO: ModelImageSizeProfile = {
+  sizeFormat: "tier",
+  resolutions: [
+    { value: "720p", label: "720p" },
+    { value: "480p", label: "480p" },
+  ],
+  sizesByResolution: {
+    "720p": SEEDANCE_ASPECTS,
+    "480p": SEEDANCE_ASPECTS,
+  },
+  defaultResolution: "720p",
+  defaultAspect: "9:16",
+  source: "火山方舟 Seedance 2.0 /contents/generations/tasks",
+};
+
 const STRATEGY_SIZE_PROFILES: Record<string, ModelImageSizeProfile> = {
   doubao_seedream_5: PROFILE_SEEDREAM_5_LITE,
   doubao_seedream_5_lite: PROFILE_SEEDREAM_5_LITE,
   doubao_seedream_5_pro: PROFILE_SEEDREAM_5_PRO,
   doubao_seedream_4_5: PROFILE_SEEDREAM_4_5,
   doubao_seedream_4_0: PROFILE_SEEDREAM_4_0,
+  doubao_seedance_2_mini: PROFILE_SEEDANCE_VIDEO,
+  doubao_seedance_2_fast: PROFILE_SEEDANCE_VIDEO,
+  doubao_seedance_2: PROFILE_SEEDANCE_VIDEO,
   qwen_image_2_0_pro: PROFILE_QWEN_IMAGE_2,
   qwen_image_2_0_pro_2026_06_22: PROFILE_QWEN_IMAGE_2,
   qwen_image_2_0: PROFILE_QWEN_IMAGE_2,
@@ -226,14 +255,14 @@ export function listResolutionOptions(
   return profile.resolutions;
 }
 
-/** 详情图优先 9:16；当前档位无该比例时依次回退 2:3 → 3:4 → 模型默认 */
+/** 详情图优先 9:16；视频优先 9:16；当前档位无该比例时依次回退 2:3 → 3:4 → 模型默认 */
 export function defaultAspectForKind(
   strategy: string,
-  kind: "main" | "detail",
+  kind: "main" | "detail" | "video",
   resolution?: string,
 ): string {
   const profile = getModelImageSizeProfile(strategy);
-  if (kind !== "detail") return profile.defaultAspect;
+  if (kind === "main") return profile.defaultAspect;
   const res =
     resolution && profile.sizesByResolution[resolution]
       ? resolution
@@ -249,7 +278,7 @@ export function clampSlotImageSize(
   strategy: string,
   aspect_ratio?: string,
   resolution?: string,
-  options?: { kind?: "main" | "detail" },
+  options?: { kind?: "main" | "detail" | "video" },
 ): { aspect_ratio: string; resolution: string } {
   const profile = getModelImageSizeProfile(strategy);
   const res =
@@ -269,7 +298,7 @@ export function resolveModelSizeString(
   strategy: string,
   aspect_ratio?: string,
   resolution?: string,
-  options?: { kind?: "main" | "detail" },
+  options?: { kind?: "main" | "detail" | "video" },
 ): string {
   const profile = getModelImageSizeProfile(strategy);
   const clamped = clampSlotImageSize(strategy, aspect_ratio, resolution, options);

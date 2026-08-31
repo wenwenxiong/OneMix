@@ -40,6 +40,12 @@ DOUBAO_SEEDREAM_MODELS: dict[str, str] = {
     "doubao_seedream_4_5": "doubao-seedream-4-5-251128",
     "doubao_seedream_4_0": "doubao-seedream-4-0-250828",
 }
+DOUBAO_SEEDANCE_MODEL = "doubao-seedance-2-0-mini-260615"
+DOUBAO_SEEDANCE_MODELS: dict[str, str] = {
+    "doubao_seedance_2_mini": "doubao-seedance-2-0-mini-260615",
+    "doubao_seedance_2_fast": "doubao-seedance-2-0-fast-260128",
+    "doubao_seedance_2": "doubao-seedance-2-0-260128",
+}
 QWEN_IMAGE_MODELS: dict[str, str] = {
     "qwen_image_2_0_pro": "qwen-image-2.0-pro",
     "qwen_image_2_0_pro_2026_06_22": "qwen-image-2.0-pro-2026-06-22",
@@ -94,6 +100,24 @@ def is_doubao_strategy(strategy: str) -> bool:
     return False
 
 
+def is_seedance_strategy(strategy: str) -> bool:
+    if strategy in DOUBAO_SEEDANCE_MODELS:
+        return True
+    if strategy.startswith("ark:"):
+        mid = strategy[4:].strip().lower()
+        return "seedance" in mid
+    return False
+
+
+def resolve_seedance_model(strategy: str) -> str:
+    if strategy.startswith("ark:"):
+        mid = strategy[4:].strip()
+        if not mid:
+            raise RuntimeError("动态 Seedance 策略缺少 model id")
+        return mid
+    return DOUBAO_SEEDANCE_MODELS.get(strategy) or DOUBAO_SEEDANCE_MODEL
+
+
 def is_qwen_image_strategy(strategy: str) -> bool:
     if strategy in QWEN_IMAGE_MODELS:
         return True
@@ -125,7 +149,7 @@ def resolve_qwen_image_model(strategy: str) -> str:
 
 
 def strategy_requires_ark(strategy: str) -> bool:
-    return is_doubao_strategy(strategy)
+    return is_doubao_strategy(strategy) or is_seedance_strategy(strategy)
 
 
 def strategy_requires_dashscope_for_gen(strategy: str) -> bool:
@@ -662,6 +686,7 @@ def plan_background_prompts_for_slots(
     competitor_summary: str,
     n_main: int,
     n_detail: int,
+    n_video: int = 0,
     strategy: str = "background_v2",
     custom_template: str = "",
     user_requirements: str = "",
@@ -670,7 +695,7 @@ def plan_background_prompts_for_slots(
     """
     为每张待生成图产出「背景」向 ref_prompt（主体仍以上传主图为依据，勿在文案中替换商品本体）。
 
-    返回 [(kind, index, prompt), ...]，kind 为 'main' 或 'detail'，index 从 1 开始。
+    返回 [(kind, index, prompt), ...]，kind 为 'main' / 'detail' / 'video'，index 从 1 开始。
     若提供 ref_image_paths，则用 VL（qwen-vl-plus）结合参考图规划；否则回退纯文本 qwen-max。
     """
     strategy_notes = {
@@ -707,6 +732,18 @@ def plan_background_prompts_for_slots(
             "当前生成策略：豆包 Seedream 4.0。\n"
             "提示词简洁可执行，关注构图与光影，保持商品主体一致。"
         ),
+        "doubao_seedance_2_mini": (
+            "当前生成策略：即梦 Seedance 2.0 mini（视频）。\n"
+            "提示词描述镜头运动、时长内的画面变化、商品展示节奏；保持商品主体与参考图一致。"
+        ),
+        "doubao_seedance_2_fast": (
+            "当前生成策略：即梦 Seedance 2.0 fast（视频）。\n"
+            "提示词简洁，强调运镜与商品动态展示。"
+        ),
+        "doubao_seedance_2": (
+            "当前生成策略：即梦 Seedance 2.0（视频）。\n"
+            "提示词可更精细（运镜、光影、节奏）；保持商品主体与参考图一致。"
+        ),
         "qwen_image_2_0_pro": (
             "当前生成策略：千问 qwen-image-2.0-pro（Pro 稳定版）。\n"
             "强调文字渲染、真实质感与语义遵循；如有文字请写清内容与排版位置。"
@@ -736,6 +773,7 @@ def plan_background_prompts_for_slots(
         competitor_summary=competitor_summary,
         n_main=n_main,
         n_detail=n_detail,
+        n_video=n_video,
         strategy_notes=strategy_notes,
         custom_template=custom_template,
         user_requirements=user_requirements,
@@ -743,13 +781,14 @@ def plan_background_prompts_for_slots(
     )
     logger.info(
         "\n[PLAN_PROMPT_BEGIN]\n"
-        "strategy=%s n_main=%s n_detail=%s custom_template=%s ref_images=%s model=%s\n"
+        "strategy=%s n_main=%s n_detail=%s n_video=%s custom_template=%s ref_images=%s model=%s\n"
         "product_name=%s\n"
         "%s\n"
         "[PLAN_PROMPT_END]",
         strategy,
         n_main,
         n_detail,
+        n_video,
         bool((custom_template or "").strip()),
         len(refs),
         PLANNER_VL_MODEL if refs else PLANNER_TEXT_MODEL,
@@ -765,13 +804,13 @@ def plan_background_prompts_for_slots(
         )
     else:
         raw = _generation_text(api_key=api_key, prompt=prompt, model=PLANNER_TEXT_MODEL)
-    parsed_json = _parse_slot_plan_json(raw, n_main, n_detail)
+    parsed_json = _parse_slot_plan_json(raw, n_main, n_detail, n_video)
     if parsed_json is not None:
         return _normalize_slot_prompts_to_chinese(api_key=api_key, rows=parsed_json)
-    parsed = _parse_slot_plan_lines(raw, n_main, n_detail)
+    parsed = _parse_slot_plan_lines(raw, n_main, n_detail, n_video)
     if parsed is not None:
         return _normalize_slot_prompts_to_chinese(api_key=api_key, rows=parsed)
-    fb = _fallback_slot_prompts(product_name, n_main, n_detail)
+    fb = _fallback_slot_prompts(product_name, n_main, n_detail, n_video)
     return _normalize_slot_prompts_to_chinese(api_key=api_key, rows=fb)
 
 
@@ -833,13 +872,22 @@ def plan_single_slot_prompt(
     ref_image_paths: list[Path] | None = None,
     primary_ref_index: int | None = None,
 ) -> str:
-    """重构单张提示词：结合基础描述、参考图与场景想象，返回单行可直接出图提示词。"""
-    slot_name = "主图" if kind == "main" else "详情图"
-    slot_rule = (
-        "主图请重点体现多角度展示与点击吸引力，尽量匹配对应序号策略（1首图、2场景细节、3营销功能、4信任包装、5白底标准）。"
-        if kind == "main"
-        else "详情图请重点结合基础描述，补充卖点叙事、场景想象与信息层次（海报/卖点/细节/参数/背书）。"
-    )
+    """重构单张提示词：结合基础描述、参考图与场景想象，返回单行可直接出图/出视频提示词。"""
+    if kind == "main":
+        slot_name = "主图"
+        slot_rule = (
+            "主图请重点体现多角度展示与点击吸引力，尽量匹配对应序号策略（1首图、2场景细节、3营销功能、4信任包装、5白底标准）。"
+        )
+    elif kind == "video":
+        slot_name = "视频"
+        slot_rule = (
+            "视频提示词请描述运镜、节奏、商品动态展示与场景氛围；保持参考图中商品主体一致，适合短视频图生视频。"
+        )
+    else:
+        slot_name = "详情图"
+        slot_rule = (
+            "详情图请重点结合基础描述，补充卖点叙事、场景想象与信息层次（海报/卖点/细节/参数/背书）。"
+        )
     refs = [p for p in (ref_image_paths or []) if p.is_file()][:PLANNER_MAX_REF_IMAGES]
     primary_label = ""
     if refs:
@@ -878,7 +926,7 @@ def plan_single_slot_prompt(
 
 
 def _parse_slot_plan_lines(
-    raw: str, n_main: int, n_detail: int
+    raw: str, n_main: int, n_detail: int, n_video: int = 0
 ) -> Optional[list[tuple[str, int, str]]]:
     rows: list[tuple[str, int, str]] = []
     for line in raw.splitlines():
@@ -896,24 +944,35 @@ def _parse_slot_plan_lines(
         except ValueError:
             continue
         text = parts[2].strip()
-        if kind not in ("MAIN", "DETAIL") or not text:
+        if kind not in ("MAIN", "DETAIL", "VIDEO") or not text:
             continue
-        k = "main" if kind == "MAIN" else "detail"
+        if kind == "MAIN":
+            k = "main"
+        elif kind == "VIDEO":
+            k = "video"
+        else:
+            k = "detail"
         rows.append((k, idx, text))
     mains = [(k, i, t) for k, i, t in rows if k == "main"]
     dets = [(k, i, t) for k, i, t in rows if k == "detail"]
-    if len(mains) != n_main or len(dets) != n_detail:
+    vids = [(k, i, t) for k, i, t in rows if k == "video"]
+    if len(mains) != n_main or len(dets) != n_detail or len(vids) != n_video:
         return None
     mains.sort(key=lambda x: x[1])
     dets.sort(key=lambda x: x[1])
+    vids.sort(key=lambda x: x[1])
     if [i for _, i, _ in mains] != list(range(1, n_main + 1)):
         return None
     if [i for _, i, _ in dets] != list(range(1, n_detail + 1)):
         return None
-    return mains + dets
+    if [i for _, i, _ in vids] != list(range(1, n_video + 1)):
+        return None
+    return mains + dets + vids
 
 
-def _parse_slot_plan_json(raw: str, n_main: int, n_detail: int) -> Optional[list[tuple[str, int, str]]]:
+def _parse_slot_plan_json(
+    raw: str, n_main: int, n_detail: int, n_video: int = 0
+) -> Optional[list[tuple[str, int, str]]]:
     obj = _extract_json_from_text(raw)
     if not isinstance(obj, dict):
         return None
@@ -933,6 +992,13 @@ def _parse_slot_plan_json(raw: str, n_main: int, n_detail: int) -> Optional[list
             return None
         out.extend(rows)
 
+    if n_video > 0:
+        videos = obj.get("视频创意方案")
+        rows = _extract_rows_from_scheme_list(videos, kind="video")
+        if rows is None or len(rows) != n_video:
+            return None
+        out.extend(rows)
+
     if n_main > 0:
         idxs = sorted(i for k, i, _ in out if k == "main")
         if idxs != list(range(1, n_main + 1)):
@@ -940,6 +1006,10 @@ def _parse_slot_plan_json(raw: str, n_main: int, n_detail: int) -> Optional[list
     if n_detail > 0:
         idxs = sorted(i for k, i, _ in out if k == "detail")
         if idxs != list(range(1, n_detail + 1)):
+            return None
+    if n_video > 0:
+        idxs = sorted(i for k, i, _ in out if k == "video")
+        if idxs != list(range(1, n_video + 1)):
             return None
     return out
 
@@ -1012,7 +1082,7 @@ def _extract_json_from_text(raw: str) -> Any:
 
 
 def _fallback_slot_prompts(
-    product_name: str, n_main: int, n_detail: int
+    product_name: str, n_main: int, n_detail: int, n_video: int = 0
 ) -> list[tuple[str, int, str]]:
     out: list[tuple[str, int, str]] = []
     main_defaults = [
@@ -1043,6 +1113,20 @@ def _fallback_slot_prompts(
                 "detail",
                 j,
                 detail_defaults[(j - 1) % len(detail_defaults)],
+            )
+        )
+    video_defaults = [
+        f"{product_name} 电商短视频，缓慢推进镜头展示商品全貌，柔和灯光，主体居中，质感清晰。",
+        f"{product_name} 环绕运镜展示商品细节，轻柔光影变化，节奏舒缓，适合详情页视频。",
+        f"{product_name} 场景化使用镜头，从环境拉近到商品特写，氛围自然，商业质感。",
+        f"{product_name} 卖点特写短视频，微距缓慢平移，突出材质与工艺，背景干净。",
+    ]
+    for k in range(1, n_video + 1):
+        out.append(
+            (
+                "video",
+                k,
+                video_defaults[(k - 1) % len(video_defaults)],
             )
         )
     return out
@@ -1402,6 +1486,118 @@ def doubao_seedream_generate_first_url(
     if not url:
         raise RuntimeError(f"豆包生图结果缺少 url 字段: {first}")
     return str(url)
+
+
+def doubao_seedance_generate_to_path(
+    *,
+    api_key: str,
+    prompt: str,
+    dest: Path,
+    image: str | None = None,
+    model: str | None = None,
+    resolution: str = "720p",
+    ratio: str = "16:9",
+    duration: int = 5,
+    generate_audio: bool = False,
+    watermark: bool = False,
+    poll_interval_sec: float = 10.0,
+    timeout_sec: float = 900.0,
+) -> Path:
+    """调用豆包 Seedance（火山 ARK）异步视频任务，下载 mp4 到 dest。"""
+    import time
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "Accept-Encoding": "identity",
+    }
+    use_model = model or DOUBAO_SEEDANCE_MODEL
+    res = (resolution or "720p").strip().lower()
+    if res not in ("480p", "720p", "1080p"):
+        res = "720p"
+    # mini / fast 最高 720p
+    mid = use_model.lower()
+    if ("mini" in mid or "fast" in mid) and res == "1080p":
+        res = "720p"
+    ratio_v = (ratio or "16:9").strip() or "16:9"
+    try:
+        dur = int(duration)
+    except (TypeError, ValueError):
+        dur = 5
+    if dur != -1:
+        dur = max(4, min(15, dur))
+
+    content: list[dict[str, Any]] = [
+        {"type": "text", "text": (prompt or "")[:2000]},
+    ]
+    if image:
+        # 图生视频：详情图作为首帧，针对性生成短视频
+        content.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": image},
+                "role": "first_frame",
+            }
+        )
+
+    payload: dict[str, Any] = {
+        "model": use_model,
+        "content": content,
+        "resolution": res,
+        "ratio": ratio_v if image else ratio_v,
+        "duration": dur,
+        "generate_audio": bool(generate_audio),
+        "watermark": bool(watermark),
+    }
+    create_url = f"{ARK_BASE_URL}/contents/generations/tasks"
+    r = requests.post(
+        create_url,
+        headers=headers,
+        data=json.dumps(payload),
+        timeout=60,
+    )
+    if r.status_code != 200:
+        text = r.text[:800]
+        if "ModelNotOpen" in text:
+            raise RuntimeError(
+                f"Seedance 模型未开通：账号尚未开通 {use_model}。"
+                "请到火山方舟控制台「模型广场」申请/开通 Seedance 2.0（mini），"
+                "审核通过后再用同一 ARK API Key 重试。"
+                f" 原始响应：{text[:300]}"
+            )
+        raise RuntimeError(f"Seedance 创建任务失败: HTTP {r.status_code} {text[:500]}")
+    created = r.json()
+    task_id = created.get("id")
+    if not task_id:
+        raise RuntimeError(f"Seedance 创建任务无 id: {created}")
+
+    deadline = time.time() + max(60.0, float(timeout_sec))
+    last: dict[str, Any] = {}
+    while time.time() < deadline:
+        time.sleep(max(3.0, float(poll_interval_sec)))
+        qr = requests.get(f"{create_url}/{task_id}", headers=headers, timeout=60)
+        if qr.status_code != 200:
+            raise RuntimeError(
+                f"Seedance 查询任务失败: HTTP {qr.status_code} {qr.text[:500]}"
+            )
+        last = qr.json()
+        status = str(last.get("status") or "").lower()
+        if status == "succeeded":
+            break
+        if status in ("failed", "expired", "cancelled"):
+            err = last.get("error") or last.get("message") or last
+            raise RuntimeError(f"Seedance 任务失败: {err}")
+    else:
+        raise RuntimeError(f"Seedance 任务超时（>{timeout_sec}s）: {task_id}")
+
+    content_out = last.get("content") if isinstance(last.get("content"), dict) else {}
+    video_url = (content_out or {}).get("video_url") or last.get("video_url")
+    if not video_url:
+        raise RuntimeError(f"Seedance 成功但无 video_url: {last}")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    download_image(str(video_url), dest)  # 复用二进制下载
+    return dest
 
 
 def _extract_image_url_from_mmc_output(out: Any) -> str:

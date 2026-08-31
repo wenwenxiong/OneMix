@@ -8,10 +8,17 @@ import { LogDialog } from "@/components/log/LogDialog";
 import { ImagePreviewDialog } from "@/components/preview/ImagePreviewDialog";
 import { OcrDialog } from "@/components/ocr/OcrDialog";
 import { MainImageLibraryDialog } from "@/components/images/MainImageLibraryDialog";
+import { DetailImageLibraryDialog } from "@/components/images/DetailImageLibraryDialog";
 import { StepExtract } from "@/components/steps/StepExtract";
 import { StepMain } from "@/components/steps/StepMain";
 import { StepDetail } from "@/components/steps/StepDetail";
-import { buildDetailResults, buildMainResults, previewErrorHandler } from "./helpers";
+import { StepVideo } from "@/components/steps/StepVideo";
+import {
+  buildDetailResults,
+  buildMainResults,
+  buildVideoResults,
+  previewErrorHandler,
+} from "./helpers";
 
 export default function Home() {
   const app = useOneMixApp();
@@ -80,6 +87,21 @@ export default function Home() {
         selectedIndices={app.selectedMainImages}
         onToggleSelection={app.onToggleMainImageSelection}
         onConfirm={app.onConfirmMainImageLibrary}
+      />
+
+      <DetailImageLibraryDialog
+        open={app.showDetailImageLibrary}
+        onOpenChange={(open) =>
+          open ? app.onOpenDetailImageLibrary() : app.onCloseDetailImageLibrary()
+        }
+        activeTab={app.activeDetailImageTab}
+        onTabChange={app.onDetailImageTabChange}
+        generatedMainItems={app.generatedMainItems}
+        generatedDetailItems={app.generatedDetailItems}
+        uploadedItems={app.detailWhiteImageItems}
+        selectedIndices={app.selectedDetailImages}
+        onToggleSelection={app.onToggleDetailImageSelection}
+        onConfirm={app.onConfirmDetailImageLibrary}
       />
 
       <div className="mx-auto max-w-6xl space-y-8 px-4 py-8 md:px-8 md:py-10">
@@ -209,6 +231,66 @@ export default function Home() {
             onPreviewError={(slot, i) => previewErrorHandler(app, slot, i)}
             canGenerate={app.detailWhiteFiles.length > 0 || app.whiteFiles.length > 0}
             onBack={() => app.setCurrentStep(2)}
+            onNext={() => app.setCurrentStep(4)}
+          />
+        )}
+
+        {app.currentStep === 4 && (
+          <StepVideo
+            name={app.name}
+            strategy={app.videoStrategy}
+            nVideoInput={app.nVideoInput}
+            onNameChange={app.setName}
+            onStrategyChange={app.setVideoStrategy}
+            onCountChange={app.onNVideoInputChange}
+            strategyGroups={app.videoStrategyGroups}
+            videoRefImageItems={app.videoRefImageItems}
+            isDragOver={app.isStep4DragOver}
+            onDragEnter={app.onStep4DragEnter}
+            onDragOver={app.onStep4DragOver}
+            onDragLeave={app.onStep4DragLeave}
+            onDrop={app.onStep4Drop}
+            onSelectVideoRefFiles={app.onSelectVideoRefFiles}
+            onRemoveVideoRef={app.onRemoveVideoRefAt}
+            onReplaceVideoRef={app.onReplaceVideoRefAt}
+            onOpenDetailImageLibrary={app.onOpenDetailImageLibrary}
+            onPreview={app.onOpenPreview}
+            busy={app.busy}
+            activePlanKind={app.activePlanKind}
+            videoSlots={app.videoSlots}
+            collapsePanel={app.collapseVideoPanel}
+            onToggleCollapse={() => app.setCollapseVideoPanel((v) => !v)}
+            onPlan={() => app.onPlanByKind("video")}
+            onGenerateAll={() => app.onGenerate("video")}
+            onDownloadZip={() => app.onDownloadZip("video")}
+            onDownloadOneResult={(item) => app.onDownloadOneResult("video", item)}
+            videoJob={app.videoJob}
+            resultItems={buildVideoResults(app.videoSlots, app.videoResultMap)}
+            onVideoResultDragStart={app.onVideoResultDragStart}
+            getRefWhiteItems={app.getRefWhiteItems}
+            getRefWhiteIndex={app.getRefWhiteIndex}
+            onPromptChange={app.updateSlotPrompt}
+            onRefChange={app.updateSlotRef}
+            onAspectChange={app.updateSlotAspect}
+            onResolutionChange={app.updateSlotResolution}
+            onBatchImageSizeChange={(aspect, resolution) =>
+              app.batchUpdateSlotImageSize("video", aspect, resolution)
+            }
+            onRefine={app.onRefineSlotPrompt}
+            onGenerateOne={(i) => void app.onGenerate("video", [i])}
+            onPreviewError={(slot, i) => previewErrorHandler(app, slot, i)}
+            canGenerate={
+              app.videoRefFiles.length > 0 ||
+              app.detailWhiteFiles.length > 0 ||
+              app.whiteFiles.length > 0
+            }
+            canFinishPackage={
+              Object.keys(app.mainResultRefs).length > 0 ||
+              Object.keys(app.detailResultRefs).length > 0 ||
+              Object.keys(app.videoResultRefs).length > 0
+            }
+            onBack={() => app.setCurrentStep(3)}
+            onFinishPackage={app.onDownloadAllPackage}
           />
         )}
       </div>

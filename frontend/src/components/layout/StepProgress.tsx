@@ -1,7 +1,7 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const STEPS = ["信息提取", "生成主图", "生成详情"] as const;
+const STEPS = ["信息提取", "生成主图", "生成详情", "生成视频"] as const;
 
 type StepProgressProps = {
   currentStep: number;
