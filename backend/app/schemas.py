@@ -95,6 +95,10 @@ class ArkKeyIn(BaseModel):
     api_key: str = Field(min_length=1, description="写入 SQLite 的 ARK API Key")
 
 
+class GptImageKeyIn(BaseModel):
+    api_key: str = Field(min_length=1, description="写入 SQLite 的 GPT-image-2 / OpenAI API Key")
+
+
 class SettingsOut(BaseModel):
     has_dashscope_key: bool
     dashscope_key_preview: Optional[str] = Field(
@@ -108,6 +112,13 @@ class SettingsOut(BaseModel):
         default=None, description="仅展示末尾若干字符，不全文返回"
     )
     ark_key_updated_at: Optional[str] = Field(
+        default=None, description="ISO8601 时间（UTC 存库为 naive 时按本地展示）"
+    )
+    has_gpt_image_key: bool = False
+    gpt_image_key_preview: Optional[str] = Field(
+        default=None, description="仅展示末尾若干字符，不全文返回"
+    )
+    gpt_image_key_updated_at: Optional[str] = Field(
         default=None, description="ISO8601 时间（UTC 存库为 naive 时按本地展示）"
     )
 

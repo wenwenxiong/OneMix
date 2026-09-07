@@ -74,3 +74,32 @@ def resolve_ark_api_key(
             "或设置环境变量 ARK_API_KEY，或通过 PUT /api/settings/ark-key 写入服务端 SQLite。"
         ),
     )
+
+
+def get_gpt_image_api_key_optional(
+    *,
+    db: Session,
+    x_openai_key: Optional[str],
+) -> str | None:
+    if x_openai_key and x_openai_key.strip():
+        return x_openai_key.strip()
+    env = (os.environ.get("OPENAI_API_KEY") or "").strip()
+    if env:
+        return env
+    return crud_settings.get_gpt_image_api_key(db)
+
+
+def resolve_gpt_image_api_key(
+    db: Annotated[Session, Depends(get_db)],
+    x_openai_key: Annotated[Optional[str], Header(alias="X-OpenAI-Key")] = None,
+) -> str:
+    key = get_gpt_image_api_key_optional(db=db, x_openai_key=x_openai_key)
+    if key:
+        return key
+    raise HTTPException(
+        status_code=401,
+        detail=(
+            "缺少 OpenAI API Key：请使用请求头 X-OpenAI-Key，"
+            "或设置环境变量 OPENAI_API_KEY，或通过 PUT /api/settings/gpt-image-key 写入服务端 SQLite。"
+        ),
+    )

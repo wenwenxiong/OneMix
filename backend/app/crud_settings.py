@@ -10,6 +10,7 @@ from app.models import Setting
 
 KEY_DASHSCOPE_API = "dashscope_api_key"
 KEY_ARK_API = "ark_api_key"
+KEY_GPT_IMAGE_API = "gpt_image_api_key"
 
 
 def get_dashscope_record(db: Session) -> Setting | None:
@@ -69,6 +70,37 @@ def set_ark_api_key(db: Session, api_key: str) -> None:
 
 def delete_ark_api_key(db: Session) -> None:
     row = db.get(Setting, KEY_ARK_API)
+    if row:
+        db.delete(row)
+        db.commit()
+
+
+def get_gpt_image_record(db: Session) -> Setting | None:
+    return db.get(Setting, KEY_GPT_IMAGE_API)
+
+
+def get_gpt_image_api_key(db: Session) -> str | None:
+    row = get_gpt_image_record(db)
+    if not row or not row.value:
+        return None
+    s = row.value.strip()
+    return s or None
+
+
+def set_gpt_image_api_key(db: Session, api_key: str) -> None:
+    key = api_key.strip()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    row = db.get(Setting, KEY_GPT_IMAGE_API)
+    if row:
+        row.value = key
+        row.updated_at = now
+    else:
+        db.add(Setting(key=KEY_GPT_IMAGE_API, value=key, updated_at=now))
+    db.commit()
+
+
+def delete_gpt_image_api_key(db: Session) -> None:
+    row = db.get(Setting, KEY_GPT_IMAGE_API)
     if row:
         db.delete(row)
         db.commit()

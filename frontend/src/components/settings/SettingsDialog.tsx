@@ -18,12 +18,16 @@ type SettingsDialogProps = {
   setApiKey: (v: string) => void;
   arkKey: string;
   setArkKey: (v: string) => void;
-  editingKey: "dashscope" | "ark" | null;
-  setEditingKey: (v: "dashscope" | "ark" | null) => void;
+  gptImageKey: string;
+  setGptImageKey: (v: string) => void;
+  editingKey: "dashscope" | "ark" | "gpt_image" | null;
+  setEditingKey: (v: "dashscope" | "ark" | "gpt_image" | null) => void;
   onSaveDashScope: () => void | Promise<void>;
   onClearDashScope: () => void | Promise<void>;
   onSaveArk: () => void | Promise<void>;
   onClearArk: () => void | Promise<void>;
+  onSaveGptImage: () => void | Promise<void>;
+  onClearGptImage: () => void | Promise<void>;
   onSyncArkModels?: () => void | Promise<void>;
   onSyncQwenModels?: () => void | Promise<void>;
   syncingArkModels?: boolean;
@@ -39,12 +43,16 @@ export function SettingsDialog({
   setApiKey,
   arkKey,
   setArkKey,
+  gptImageKey,
+  setGptImageKey,
   editingKey,
   setEditingKey,
   onSaveDashScope,
   onClearDashScope,
   onSaveArk,
   onClearArk,
+  onSaveGptImage,
+  onClearGptImage,
   onSyncArkModels,
   onSyncQwenModels,
   syncingArkModels = false,
@@ -58,6 +66,11 @@ export function SettingsDialog({
 
   const handleSaveArk = async () => {
     await onSaveArk();
+    setEditingKey(null);
+  };
+
+  const handleSaveGptImage = async () => {
+    await onSaveGptImage();
     setEditingKey(null);
   };
 
@@ -149,6 +162,27 @@ export function SettingsDialog({
                 </p>
               </div>
             ) : null}
+          </KeyCard>
+          <KeyCard
+            title="GPT-image-2（可选）"
+            configured={!!serverSettings?.has_gpt_image_key}
+            preview={serverSettings?.gpt_image_key_preview}
+            editing={editingKey === "gpt_image"}
+            onToggleEdit={() =>
+              setEditingKey(editingKey === "gpt_image" ? null : "gpt_image")
+            }
+            description="可选增强项：不配置不影响主图 / 详情图 / 视频的正常生成；配置后可额外启用 GPT-image-2，属于锦上添花。"
+            consoleHref="https://platform.openai.com/api-keys"
+            consoleLabel="打开 OpenAI 控制台"
+          >
+            <KeyEditForm
+              defaultValue={gptImageKey}
+              onValueChange={setGptImageKey}
+              onSave={handleSaveGptImage}
+              onClear={onClearGptImage}
+              busy={busy}
+              placeholder="输入 OpenAI API Key（GPT-image-2）"
+            />
           </KeyCard>
         </div>
       </DialogContent>

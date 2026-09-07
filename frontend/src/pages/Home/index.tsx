@@ -41,12 +41,16 @@ export default function Home() {
         setApiKey={app.setApiKey}
         arkKey={app.arkKey}
         setArkKey={app.setArkKey}
+        gptImageKey={app.gptImageKey}
+        setGptImageKey={app.setGptImageKey}
         editingKey={app.editingKey}
         setEditingKey={app.setEditingKey}
         onSaveDashScope={app.onSaveKeyToServer}
         onClearDashScope={app.onClearServerKey}
         onSaveArk={app.onSaveArkKeyToServer}
         onClearArk={app.onClearArkServerKey}
+        onSaveGptImage={app.onSaveGptImageKeyToServer}
+        onClearGptImage={app.onClearGptImageServerKey}
         onSyncArkModels={app.onSyncArkSeedreamModels}
         onSyncQwenModels={app.onSyncQwenImageModels}
         syncingArkModels={app.syncingStrategies}

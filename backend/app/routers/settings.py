@@ -17,6 +17,7 @@ from app.schemas import (
     DashScopeKeyIn,
     DashScopeQwenImageModelOut,
     DashScopeQwenImageModelsOut,
+    GptImageKeyIn,
     SettingsOut,
 )
 from onemix.services import dashscope_svc
@@ -28,6 +29,7 @@ router = APIRouter(prefix="/settings", tags=["settings"])
 def read_settings(db: Session = Depends(get_db)) -> SettingsOut:
     ds_row = crud_settings.get_dashscope_record(db)
     ark_row = crud_settings.get_ark_record(db)
+    gpt_row = crud_settings.get_gpt_image_record(db)
 
     ds_preview = None
     ds_updated = None
@@ -47,6 +49,15 @@ def read_settings(db: Session = Depends(get_db)) -> SettingsOut:
         if ark_row.updated_at:
             ark_updated = ark_row.updated_at.isoformat()
 
+    gpt_preview = None
+    gpt_updated = None
+    has_gpt = bool(gpt_row and (gpt_row.value or "").strip())
+    if has_gpt and gpt_row:
+        raw = gpt_row.value.strip()
+        gpt_preview = ("****" + raw[-4:]) if len(raw) >= 4 else "****"
+        if gpt_row.updated_at:
+            gpt_updated = gpt_row.updated_at.isoformat()
+
     return SettingsOut(
         has_dashscope_key=has_ds,
         dashscope_key_preview=ds_preview,
@@ -54,6 +65,9 @@ def read_settings(db: Session = Depends(get_db)) -> SettingsOut:
         has_ark_key=has_ark,
         ark_key_preview=ark_preview,
         ark_key_updated_at=ark_updated,
+        has_gpt_image_key=has_gpt,
+        gpt_image_key_preview=gpt_preview,
+        gpt_image_key_updated_at=gpt_updated,
     )
 
 
@@ -78,6 +92,18 @@ def save_ark_key(body: ArkKeyIn, db: Session = Depends(get_db)) -> dict[str, boo
 @router.delete("/ark-key")
 def clear_ark_key(db: Session = Depends(get_db)) -> dict[str, bool]:
     crud_settings.delete_ark_api_key(db)
+    return {"ok": True}
+
+
+@router.put("/gpt-image-key")
+def save_gpt_image_key(body: GptImageKeyIn, db: Session = Depends(get_db)) -> dict[str, bool]:
+    crud_settings.set_gpt_image_api_key(db, body.api_key)
+    return {"ok": True}
+
+
+@router.delete("/gpt-image-key")
+def clear_gpt_image_key(db: Session = Depends(get_db)) -> dict[str, bool]:
+    crud_settings.delete_gpt_image_api_key(db)
     return {"ok": True}
 
 

@@ -57,7 +57,15 @@ function withSlotImageDefaults(row: SlotRow, strategy: string): SlotRow {
 }
 
 export function useOneMixApp() {
-  const { apiKey, setApiKey, arkKey, setArkKey, headers } = useApiKeys();
+  const {
+    apiKey,
+    setApiKey,
+    arkKey,
+    setArkKey,
+    gptImageKey,
+    setGptImageKey,
+    headers,
+  } = useApiKeys();
 
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
@@ -152,9 +160,9 @@ export function useOneMixApp() {
   const [ocrResult, setOcrResult] = useState("");
   const [isOcrDragOver, setIsOcrDragOver] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
-  const [editingKey, setEditingKey] = useState<"dashscope" | "ark" | null>(
-    null,
-  );
+  const [editingKey, setEditingKey] = useState<
+    "dashscope" | "ark" | "gpt_image" | null
+  >(null);
   const [showMainImageLibrary, setShowMainImageLibrary] = useState(false);
   const [selectedMainImages, setSelectedMainImages] = useState<number[]>([]);
   const [activeImageTab, setActiveImageTab] = useState<
@@ -1259,6 +1267,42 @@ export function useOneMixApp() {
     }
   };
 
+  const onSaveGptImageKeyToServer = async () => {
+    if (!gptImageKey.trim()) {
+      appendLog("请先输入 GPT-image-2 / OpenAI Key。\n");
+      return;
+    }
+    setBusy(true);
+    try {
+      const r = await fetch("/api/settings/gpt-image-key", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ api_key: gptImageKey.trim() }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      appendLog("已保存 GPT-image-2 Key（可选增强，不影响正常出图）。\n");
+      await loadServerSettings();
+    } catch (e) {
+      appendLog(`保存 GPT-image-2 Key 失败：${e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onClearGptImageServerKey = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/settings/gpt-image-key", { method: "DELETE" });
+      if (!r.ok) throw new Error(await r.text());
+      appendLog("已清除 GPT-image-2 Key。\n");
+      await loadServerSettings();
+    } catch (e) {
+      appendLog(`清除 GPT-image-2 Key 失败：${e}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onSyncArkSeedreamModels = useCallback(async () => {
     if (!arkKey.trim() && !serverSettings?.has_ark_key) {
       appendLog("请先配置即梦 ARK Key，再同步豆包模型。\n");
@@ -1872,6 +1916,8 @@ export function useOneMixApp() {
     setApiKey,
     arkKey,
     setArkKey,
+    gptImageKey,
+    setGptImageKey,
     headers,
     name,
     setName,
@@ -1997,6 +2043,8 @@ export function useOneMixApp() {
     onClearServerKey,
     onSaveArkKeyToServer,
     onClearArkServerKey,
+    onSaveGptImageKeyToServer,
+    onClearGptImageServerKey,
     onOpenOcrModal,
     onCloseOcrModal,
     onOcrDragEnter,

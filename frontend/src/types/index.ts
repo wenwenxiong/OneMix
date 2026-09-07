@@ -20,6 +20,9 @@ export type ServerSettings = {
   has_ark_key?: boolean;
   ark_key_preview?: string | null;
   ark_key_updated_at?: string | null;
+  has_gpt_image_key?: boolean;
+  gpt_image_key_preview?: string | null;
+  gpt_image_key_updated_at?: string | null;
 };
 
 export type ExtractResponse = {
