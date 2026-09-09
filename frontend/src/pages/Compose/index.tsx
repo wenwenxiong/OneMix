@@ -436,12 +436,12 @@ export default function ComposePage({ onBack, apiKey }: Props) {
               <Card>
                 <CardHeader>
                   <CardTitle>步骤 2：旋转校正</CardTitle>
-                  <CardDescription>
-                    检测到 {objects.length} 个物品（来源：{detectSource === "vlm" ? "VLM" : "本地连通域"}）。
-                    {detectSource === "vlm"
-                      ? "已根据包装文字方向自动建议旋转角度，可手动微调。"
-                      : "本地模式无法自动判断文字方向，请手动选择旋转角度使文字正向。"}
-                  </CardDescription>
+                <CardDescription>
+                  检测到 {objects.length} 个物品（来源：{detectSource === "vlm" ? "VLM" : "本地连通域"}）。
+                  {detectSource === "vlm"
+                    ? "VLM 分两步检测：先识别物品，再逐个判断文字朝向自动校正角度，可手动微调。"
+                    : "本地模式无法自动判断文字方向，请手动选择旋转角度使文字正向。"}
+                </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ObjectPreview
@@ -503,7 +503,7 @@ export default function ComposePage({ onBack, apiKey }: Props) {
               <CardHeader>
                 <CardTitle>步骤 1：上传多张白底物品图</CardTitle>
                 <CardDescription>
-                  可一次上传多张图，每张图独立检测物品并生成多种角度组合。总结果上限 100 张。
+                  可一次上传多张图，每张图独立检测物品并生成多种布局变体。总结果上限 100 张。
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -535,7 +535,7 @@ export default function ComposePage({ onBack, apiKey }: Props) {
                   <CardTitle>步骤 2：检测结果汇总</CardTitle>
                   <CardDescription>
                     {batchFiles.length} 张图共检测到 {batchObjects.reduce((s, o) => s + o.length, 0)} 个物品。
-                    批量模式将自动枚举每个物品的 [VLM建议角度, 0°] 组合。
+                    角度已通过 VLM 分两步自动校正，批量模式将枚举多种布局变体（横排/竖排/网格等）。
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -580,7 +580,7 @@ export default function ComposePage({ onBack, apiKey }: Props) {
                 <CardHeader>
                   <CardTitle>步骤 3：批量生成参数</CardTitle>
                   <CardDescription>
-                    设置每张图的最大生成张数和布局参数，然后批量生成。
+                    设置每张图的布局变体数和布局参数，然后批量生成。角度已自动校正。
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -598,7 +598,7 @@ export default function ComposePage({ onBack, apiKey }: Props) {
                       {busy ? "生成中..." : `批量生成（最多 ${batchFiles.length * maxCount} 张）`}
                     </Button>
                     <span className="text-xs text-muted-foreground">
-                      预计最多 {batchFiles.length} × {maxCount} = {batchFiles.length * maxCount} 张
+                      预计最多 {batchFiles.length} × {maxCount} = {batchFiles.length * maxCount} 张布局变体
                     </span>
                   </div>
                 </CardContent>

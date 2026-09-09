@@ -43,7 +43,7 @@ export function BatchControls({
   return (
     <div className="grid gap-4 sm:grid-cols-3">
       <div className="space-y-2">
-        <Label>每图最大张数</Label>
+        <Label>每图布局变体数</Label>
         <Input
           type="number"
           min={1}
@@ -55,7 +55,7 @@ export function BatchControls({
           }}
           className="w-full"
         />
-        <p className="text-xs text-muted-foreground">范围 1-20，总结果上限 100 张</p>
+        <p className="text-xs text-muted-foreground">范围 1-20，每张图生成多种布局变体，总结果上限 100 张</p>
       </div>
       <div className="space-y-2">
         <Label>布局模式</Label>

@@ -205,7 +205,7 @@ class BatchComposeItem(BaseModel):
 class BatchComposeOptions(BaseModel):
     """批量组合生图参数。"""
     items: list[BatchComposeItem] = Field(description="每张图的检测结果（与上传图片顺序对应）")
-    max_count: int = Field(default=6, ge=1, le=20, description="每张图最大生成张数")
+    max_count: int = Field(default=6, ge=1, le=20, description="每张图最大布局变体数（1-20）")
     layout_mode: str = Field(default="auto", description="布局模式：auto/horizontal/vertical/2h1v/1h2v/grid")
     target_ratio: str = Field(default="1:1", description="目标画布宽高比：1:1/3:4/4:3")
     fmt: str = Field(default="JPG", description="输出格式：JPG 或 PNG")
