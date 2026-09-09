@@ -13,7 +13,6 @@ import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
-import numpy as np
 from PIL import Image, ImageChops
 
 from onemix.services import dashscope_svc
@@ -40,9 +39,9 @@ def detect_objects_via_vlm(image_path: Path, api_key: str) -> list[dict[str, Any
 
     分两步：
     1) 第一步：检测所有物品的 bbox + label（不判断角度）
-    2) 后处理：对大 bbox（面积 > 原图 40%）做白线切割 + 宽度突变切割，
-       处理 VLM 把相邻/叠放物品合并的情况
-    3) 第二步：裁剪每个物品，单独调 VLM 判断旋转角度（单物品判断更准）
+    2) 二次确认：如果只返回 1 个 bbox，再调一次 VLM（用不同提示词）确认是否多个
+    3) 后处理：如果仍只有 1 个 bbox，尝试白线切割（并排相邻场景）
+    4) 第二步：裁剪每个物品，单独调 VLM 判断旋转角度（单物品判断更准）
 
     返回格式：[{"bbox": [x1, y1, x2, y2], "label": "...", "suggested_rotation": 0}, ...]
     坐标基于原图像素，x1<y1<x2<y2。
@@ -55,33 +54,38 @@ def detect_objects_via_vlm(image_path: Path, api_key: str) -> list[dict[str, Any
     )
     objects = _parse_bbox_json(raw)
 
-    # 后处理：对大 bbox（面积 > 原图 40%）做白线切割 + 宽度突变切割
-    im = Image.open(image_path).convert("RGB")
-    img_area = im.width * im.height
-    split_objects: list[dict[str, Any]] = []
-    for obj in objects:
-        x1, y1, x2, y2 = obj["bbox"]
-        bbox_area = (x2 - x1) * (y2 - y1)
-        if bbox_area > img_area * 0.4:
-            # 大 bbox，先尝试白线切割（并排相邻场景）
-            sub_bboxes = _split_bbox_by_white_lines(im, (x1, y1, x2, y2))
-            if len(sub_bboxes) == 1:
-                # 白线切割失败，尝试宽度突变切割（叠放场景）
-                sub_bboxes = _split_bbox_by_width_change(im, (x1, y1, x2, y2))
-            if len(sub_bboxes) > 1:
-                # 切割成功，替换为多个子 bbox
-                for j, sub in enumerate(sub_bboxes):
-                    split_objects.append({
-                        "bbox": list(sub),
-                        "label": f"{obj['label']}{j + 1}",
-                        "suggested_rotation": 0,
-                    })
-            else:
-                split_objects.append(obj)
-        else:
-            split_objects.append(obj)
+    # 二次确认：如果只返回 1 个 bbox，再调一次 VLM（用不同提示词）
+    if len(objects) == 1:
+        try:
+            raw2 = dashscope_svc.multimodal_text(
+                api_key=api_key,
+                image_paths=[image_path],
+                user_prompt=prompts.OBJECT_DETECT_BBOX_RETRY_PROMPT,
+            )
+            objects2 = _parse_bbox_json(raw2)
+            if len(objects2) > 1:
+                # 二次确认发现多个物品，用第二次结果
+                objects = objects2
+                logger.info("VLM 二次确认发现 %d 个物品", len(objects))
+        except Exception as e:
+            logger.warning("VLM 二次确认失败，用首次结果: %s", e)
 
-    objects = split_objects if split_objects else objects
+    # 后处理：如果仍只有 1 个 bbox，尝试白线切割（并排相邻场景）
+    if len(objects) == 1:
+        im = Image.open(image_path).convert("RGB")
+        x1, y1, x2, y2 = objects[0]["bbox"]
+        sub_bboxes = _split_bbox_by_white_lines(im, (x1, y1, x2, y2))
+        if len(sub_bboxes) > 1:
+            # 白线切割成功，替换为多个子 bbox
+            split_objects: list[dict[str, Any]] = []
+            for j, sub in enumerate(sub_bboxes):
+                split_objects.append({
+                    "bbox": list(sub),
+                    "label": f"{objects[0]['label']}{j + 1}",
+                    "suggested_rotation": 0,
+                })
+            objects = split_objects
+            logger.info("白线切割成功，分成 %d 个物品", len(objects))
 
     # 第二步：裁剪每个物品，单独调 VLM 判断角度
     rgba_objects = crop_to_rgba_objects(image_path, objects)
@@ -289,14 +293,10 @@ def detect_objects_local(image_path: Path, threshold: int = WHITE_THRESHOLD) -> 
     bboxes.sort(key=lambda b: b[4], reverse=True)
     bboxes = bboxes[:10]
 
-    # 对每个连通域 bbox 做白线扫描切割 + 宽度突变切割（处理相邻/叠放物品被合并的情况）
+    # 对每个连通域 bbox 做白线扫描切割（处理相邻物品被合并的情况）
     final_bboxes: list[tuple[int, int, int, int]] = []
     for x1, y1, x2, y2, _area in bboxes:
-        # 先尝试白线切割（并排相邻场景）
         sub_bboxes = _split_bbox_by_white_lines(im, (x1, y1, x2, y2))
-        if len(sub_bboxes) == 1:
-            # 白线切割失败，尝试宽度突变切割（叠放场景）
-            sub_bboxes = _split_bbox_by_width_change(im, (x1, y1, x2, y2))
         final_bboxes.extend(sub_bboxes)
 
     out: list[dict[str, Any]] = []
@@ -339,7 +339,7 @@ def _split_bbox_by_white_lines(
     image: Image.Image,
     bbox: tuple[int, int, int, int],
     threshold: int = WHITE_THRESHOLD,
-    min_white_thickness: int = 2,
+    min_white_thickness: int = 5,
 ) -> list[tuple[int, int, int, int]]:
     """检查 bbox 内部是否有全白行/列（宽度 >= min_white_thickness），
     如果有则在白线处切割成多个子 bbox。
@@ -407,132 +407,6 @@ def _split_bbox_by_white_lines(
         return [bbox]
 
     # 无白线，返回原 bbox
-    return [bbox]
-
-
-def _split_bbox_by_width_change(
-    image: Image.Image,
-    bbox: tuple[int, int, int, int],
-    threshold: int = WHITE_THRESHOLD,
-    min_width_ratio: float = 0.3,
-    min_segment_size: int = 20,
-) -> list[tuple[int, int, int, int]]:
-    """扫描 bbox 内前景的行/列宽度，在宽度突变处切割。
-
-    用于叠放物品外轮廓有阶梯状变化的情况（白线切割无法处理的场景）。
-    原理：叠放物品在叠放处的前景宽度会突变（如阶梯状边缘、L 形外轮廓）。
-
-    算法：
-    1. 裁剪 bbox 区域，生成前景掩码（非白像素）
-    2. 行扫描：计算每行前景的左右边界和宽度
-    3. 找宽度突变点（相邻行宽度差 > 最大宽度 * min_width_ratio）
-    4. 在突变点切割成上下两个子 bbox
-    5. 行方向无突变时，尝试列方向切割
-
-    Args:
-        image: 原图（RGB）
-        bbox: (x1, y1, x2, y2)
-        threshold: 白底阈值
-        min_width_ratio: 宽度突变阈值（相对于最大宽度）
-        min_segment_size: 切割后每段最小尺寸（像素）
-
-    Returns:
-        切割后的子 bbox 列表。如果无需切割，返回原 bbox 单元素列表。
-    """
-    x1, y1, x2, y2 = bbox
-    w = x2 - x1
-    h = y2 - y1
-    if w <= min_segment_size or h <= min_segment_size:
-        return [bbox]
-
-    crop = np.array(image.crop((x1, y1, x2, y2)).convert("RGB"))
-    # 前景掩码：非白像素为 True
-    fg = ~(
-        (crop[:, :, 0] >= threshold)
-        & (crop[:, :, 1] >= threshold)
-        & (crop[:, :, 2] >= threshold)
-    )
-
-    # 行扫描：每行前景的左右边界和宽度
-    row_has_fg = fg.any(axis=1)
-    if not row_has_fg.any():
-        return [bbox]
-
-    # 每行前景的左右边界
-    row_left = np.full(h, w, dtype=int)
-    row_right = np.full(h, 0, dtype=int)
-    for i in range(h):
-        fg_cols = np.where(fg[i])[0]
-        if len(fg_cols) > 0:
-            row_left[i] = fg_cols[0]
-            row_right[i] = fg_cols[-1]
-
-    row_width = np.where(row_has_fg, row_right - row_left + 1, 0)
-    max_width = int(row_width.max())
-    if max_width < min_segment_size:
-        return [bbox]
-
-    # 找宽度突变点：相邻行宽度差 > max_width * min_width_ratio
-    width_diff = np.abs(np.diff(row_width.astype(float)))
-    split_threshold = max_width * min_width_ratio
-    split_rows = np.where(width_diff > split_threshold)[0]
-
-    if len(split_rows) > 0:
-        # 在第一个突变处切割
-        split_y = int(split_rows[0]) + 1  # +1 因为 diff 偏移
-        if split_y < min_segment_size or split_y > h - min_segment_size:
-            # 切割点太靠边，无效
-            pass
-        else:
-            sub_bboxes = [
-                (x1, y1, x2, y1 + split_y),
-                (x1, y1 + split_y, x2, y2),
-            ]
-            valid = [
-                b for b in sub_bboxes
-                if (b[2] - b[0]) > min_segment_size and (b[3] - b[1]) > min_segment_size
-            ]
-            if len(valid) > 1:
-                return valid
-
-    # 行方向无有效突变，尝试列方向切割
-    col_has_fg = fg.any(axis=0)
-    if not col_has_fg.any():
-        return [bbox]
-
-    col_top = np.full(w, h, dtype=int)
-    col_bottom = np.full(w, 0, dtype=int)
-    for j in range(w):
-        fg_rows = np.where(fg[:, j])[0]
-        if len(fg_rows) > 0:
-            col_top[j] = fg_rows[0]
-            col_bottom[j] = fg_rows[-1]
-
-    col_height = np.where(col_has_fg, col_bottom - col_top + 1, 0)
-    max_height = int(col_height.max())
-    if max_height < min_segment_size:
-        return [bbox]
-
-    height_diff = np.abs(np.diff(col_height.astype(float)))
-    split_threshold_col = max_height * min_width_ratio
-    split_cols = np.where(height_diff > split_threshold_col)[0]
-
-    if len(split_cols) > 0:
-        split_x = int(split_cols[0]) + 1
-        if split_x < min_segment_size or split_x > w - min_segment_size:
-            return [bbox]
-        sub_bboxes = [
-            (x1, y1, x1 + split_x, y2),
-            (x1 + split_x, y1, x2, y2),
-        ]
-        valid = [
-            b for b in sub_bboxes
-            if (b[2] - b[0]) > min_segment_size and (b[3] - b[1]) > min_segment_size
-        ]
-        if len(valid) > 1:
-            return valid
-
-    # 无突变，返回原 bbox
     return [bbox]
 
 
