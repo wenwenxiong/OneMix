@@ -195,3 +195,30 @@ class ComposeOptions(BaseModel):
     seed: Optional[int] = Field(default=None, description="随机种子，用于复现布局")
     target_ratio: str = Field(default="1:1", description="目标画布宽高比：1:1/3:4/4:3")
     fmt: str = Field(default="JPG", description="输出格式：JPG 或 PNG")
+
+
+class BatchComposeItem(BaseModel):
+    """批量组合中单张图的检测结果。"""
+    bboxes: list[DetectedObject] = Field(description="该图的物品 bbox 列表（含 suggested_rotation）")
+
+
+class BatchComposeOptions(BaseModel):
+    """批量组合生图参数。"""
+    items: list[BatchComposeItem] = Field(description="每张图的检测结果（与上传图片顺序对应）")
+    max_count: int = Field(default=6, ge=1, le=20, description="每张图最大生成张数")
+    layout_mode: str = Field(default="auto", description="布局模式：auto/horizontal/vertical/2h1v/1h2v/grid")
+    target_ratio: str = Field(default="1:1", description="目标画布宽高比：1:1/3:4/4:3")
+    fmt: str = Field(default="JPG", description="输出格式：JPG 或 PNG")
+
+
+class BatchComposeResultItem(BaseModel):
+    """批量组合单张结果。"""
+    image_base64: str = Field(description="base64 编码的图片（不含 data: 前缀）")
+    filename: str = Field(description="文件名，如 图1_组合01.jpg")
+    image_index: int = Field(description="来源图片索引（从 1 开始）")
+
+
+class BatchComposeOut(BaseModel):
+    """批量组合生图返回。"""
+    results: list[BatchComposeResultItem]
+    total: int = Field(description="总生成张数")

@@ -479,3 +479,82 @@ def save_image(im: Image.Image, dest: Path, fmt: str = "JPG", quality: int = 92)
         im.convert("RGB").save(dest, "JPEG", quality=quality, optimize=True)
     else:
         im.save(dest, "PNG", optimize=True)
+
+
+def batch_compose_single_image(
+    image_path: Path,
+    bboxes: list[dict[str, Any]],
+    max_count: int = 6,
+    layout_mode: str = "auto",
+    target_ratio: str = "1:1",
+    fmt: str = "JPG",
+) -> list[dict[str, Any]]:
+    """对单张图枚举角度组合，批量生成多张组合图。
+
+    每个物品的候选角度为 [suggested_rotation, 0]（去重后），
+    用 itertools.product 枚举所有组合，截取前 max_count 个。
+
+    Args:
+        image_path: 原图路径
+        bboxes: 检测结果列表，每个含 bbox/label/suggested_rotation
+        max_count: 最大生成张数
+        layout_mode: 布局模式
+        target_ratio: 画布比例
+        fmt: 输出格式 JPG/PNG
+
+    Returns:
+        [{"image_base64": str, "filename": str}, ...]
+    """
+    import base64
+    import io as _io
+    import itertools
+
+    n = len(bboxes)
+    if n == 0:
+        raise RuntimeError("无物品可组合")
+
+    # 每个物品的候选角度：[suggested_rotation, 0]，去重
+    candidates_per_object: list[list[int]] = []
+    for item in bboxes:
+        suggested = int(item.get("suggested_rotation", 0))
+        if suggested not in ALLOWED_ANGLES:
+            suggested = 0
+        angles = [suggested, 0] if suggested != 0 else [0]
+        # 去重保序
+        seen: set[int] = set()
+        unique = [a for a in angles if not (a in seen or seen.add(a))]
+        candidates_per_object.append(unique)
+
+    # 笛卡尔积枚举所有角度组合
+    all_combos = list(itertools.product(*candidates_per_object))
+
+    # 截取前 max_count 个
+    combos = all_combos[:max_count]
+
+    # 预先裁剪+抠白底（只做一次，复用）
+    rgba_objects = crop_to_rgba_objects(image_path, bboxes)
+
+    results: list[dict[str, Any]] = []
+    for idx, combo in enumerate(combos):
+        rotations = list(combo)
+        canvas, _positions = layout_objects(
+            rgba_objects,
+            layout_mode=layout_mode,
+            rotations=rotations,
+            seed=idx,  # 不同 seed 增加布局多样性
+            target_ratio=target_ratio,
+        )
+        buf = _io.BytesIO()
+        if fmt.upper() == "JPG":
+            canvas.convert("RGB").save(buf, "JPEG", quality=92, optimize=True)
+            ext = "jpg"
+        else:
+            canvas.save(buf, "PNG", optimize=True)
+            ext = "png"
+        img_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        results.append({
+            "image_base64": img_b64,
+            "filename": f"组合{idx + 1:02d}.{ext}",
+        })
+
+    return results

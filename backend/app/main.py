@@ -43,6 +43,9 @@ from app.schemas import (
     PlanSingleBody,
     PlanSlotsBody,
     PlanSlotsRow,
+    BatchComposeOptions,
+    BatchComposeOut,
+    BatchComposeResultItem,
 )
 from onemix.services import dashscope_svc
 from onemix.services import image_compose
@@ -732,4 +735,75 @@ async def api_compose_image(
         io.BytesIO(img_bytes),
         media_type="image/jpeg" if body.fmt.upper() == "JPG" else "image/png",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/image/batch-compose", response_model=BatchComposeOut)
+async def api_batch_compose_image(
+    options: str = Form(...),
+    images: list[UploadFile] = File(...),
+) -> BatchComposeOut:
+    """批量组合生图：对多张图各自枚举角度组合，返回 base64 图片数组。
+
+    options 为 JSON 字符串，对应 BatchComposeOptions 模型。
+    images 为多张上传图片，顺序须与 options.items 对应。
+    """
+    try:
+        body = BatchComposeOptions.model_validate(json.loads(options))
+    except (json.JSONDecodeError, ValueError) as e:
+        raise HTTPException(400, f"options JSON 无效: {e}") from e
+
+    if not images:
+        raise HTTPException(400, "至少上传 1 张图片")
+    if len(images) != len(body.items):
+        raise HTTPException(400, f"图片数({len(images)})与检测结果数({len(body.items)})不一致")
+
+    # 总量封顶 100 张
+    total_max = len(images) * body.max_count
+    if total_max > 100:
+        raise HTTPException(
+            400,
+            f"总结果数上限 100 张，当前配置最多 {total_max} 张（{len(images)} 图 × {body.max_count} 张/图），请减少图片数或最大张数",
+        )
+
+    # 读取所有图片到临时文件
+    tmp_files: list[Path] = []
+    try:
+        for img_upload in images:
+            data = await img_upload.read()
+            if len(data) > 25 * 1024 * 1024:
+                raise HTTPException(413, f"图片 {img_upload.filename or ''} 过大（限 25MB）")
+            suf = Path(img_upload.filename or "img.png").suffix or ".png"
+            tmp_files.append(_write_temp_upload(data, suf))
+
+        def work() -> list[dict]:
+            all_results: list[dict] = []
+            for img_idx, (tmp, item) in enumerate(zip(tmp_files, body.items)):
+                bboxes = [o.model_dump() for o in item.bboxes]
+                if not bboxes:
+                    continue
+                single_results = image_compose.batch_compose_single_image(
+                    image_path=tmp,
+                    bboxes=bboxes,
+                    max_count=body.max_count,
+                    layout_mode=body.layout_mode,
+                    target_ratio=body.target_ratio,
+                    fmt=body.fmt,
+                )
+                for r in single_results:
+                    all_results.append({
+                        "image_base64": r["image_base64"],
+                        "filename": f"图{img_idx + 1}_{r['filename']}",
+                        "image_index": img_idx + 1,
+                    })
+            return all_results
+
+        results_raw = await _run_blocking(work)
+    finally:
+        for tmp in tmp_files:
+            _try_unlink(tmp)
+
+    return BatchComposeOut(
+        results=[BatchComposeResultItem(**r) for r in results_raw],
+        total=len(results_raw),
     )
