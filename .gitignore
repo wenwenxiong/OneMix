@@ -73,3 +73,6 @@ docs/
 *.local
 *.secret
 config.local.*
+
+# --- Test images ---
+test/
