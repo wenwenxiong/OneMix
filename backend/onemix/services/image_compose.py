@@ -81,7 +81,7 @@ def _parse_bbox_json(raw: str) -> list[dict[str, Any]]:
 
 
 def _normalize_bbox_list(data: Any) -> list[dict[str, Any]]:
-    """将解析后的数据归一化为 [{bbox, label}, ...] 列表。"""
+    """将解析后的数据归一化为 [{bbox, label, suggested_rotation}, ...] 列表。"""
     if not isinstance(data, list):
         raise RuntimeError("VLM 返回非数组")
     out: list[dict[str, Any]] = []
@@ -97,9 +97,19 @@ def _normalize_bbox_list(data: Any) -> list[dict[str, Any]]:
             continue
         if x2 <= x1 or y2 <= y1:
             continue
+        # 解析建议旋转角度，只允许 0/90/180/270
+        raw_rot = item.get("suggested_rotation", item.get("rotation", 0))
+        try:
+            rot = int(raw_rot)
+        except (TypeError, ValueError):
+            rot = 0
+        if rot not in ALLOWED_ANGLES:
+            # 归一化到最近的有效角度
+            rot = min(ALLOWED_ANGLES, key=lambda a: abs(a - rot)) if rot != 0 else 0
         out.append({
             "bbox": [x1, y1, x2, y2],
             "label": str(item.get("label", f"物品{i + 1}")),
+            "suggested_rotation": rot,
         })
     if not out:
         raise RuntimeError("VLM 未返回有效 bbox")
@@ -163,6 +173,7 @@ def detect_objects_local(image_path: Path, threshold: int = WHITE_THRESHOLD) -> 
         out.append({
             "bbox": [x1, y1, x2, y2],
             "label": f"物品{i + 1}",
+            "suggested_rotation": 0,
         })
     return out
 

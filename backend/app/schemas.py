@@ -172,6 +172,7 @@ class BundleAllBody(BaseModel):
 class DetectedObject(BaseModel):
     bbox: list[int] = Field(min_length=4, max_length=4, description="[x1, y1, x2, y2] 像素坐标")
     label: str = "物品"
+    suggested_rotation: int = Field(default=0, description="VLM 建议的顺时针旋转角度（0/90/180/270），使文字正向可读")
 
 
 class DetectObjectsOut(BaseModel):

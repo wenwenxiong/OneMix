@@ -1,9 +1,11 @@
-import { RotateCw } from "lucide-react";
+import { RotateCw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 
 type DetectedObject = {
   bbox: [number, number, number, number];
   label: string;
+  suggested_rotation: number;
 };
 
 type Props = {
@@ -70,37 +72,59 @@ export function ObjectPreview({
 
       {/* 每个物品的旋转角度选择 */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {objects.map((obj, i) => (
-          <div
-            key={i}
-            className="flex items-center justify-between rounded-lg border border-border/80 bg-card/50 px-4 py-3"
-          >
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">
-                {obj.label} #{i + 1}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {obj.bbox[2] - obj.bbox[0]} × {obj.bbox[3] - obj.bbox[1]} px
-              </p>
-            </div>
-            <div className="flex items-center gap-1">
-              <RotateCw className="h-3.5 w-3.5 text-muted-foreground" />
-              <div className="flex gap-1">
-                {ANGLES.map((ang) => (
-                  <Button
-                    key={ang}
-                    variant={rotations[i] === ang ? "default" : "outline"}
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => onRotationChange(i, ang)}
-                  >
-                    {ang}°
-                  </Button>
-                ))}
+        {objects.map((obj, i) => {
+          const current = rotations[i] ?? 0;
+          const suggested = obj.suggested_rotation ?? 0;
+          const isAuto = current === suggested;
+          const isModified = suggested !== 0 && current !== suggested;
+          return (
+            <div
+              key={i}
+              className="flex items-center justify-between rounded-lg border border-border/80 bg-card/50 px-4 py-3"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <p className="truncate text-sm font-medium">
+                    {obj.label} #{i + 1}
+                  </p>
+                  {isAuto && suggested !== 0 && (
+                    <Badge variant="secondary" className="shrink-0 gap-0.5 text-[10px]">
+                      <Sparkles className="h-2.5 w-2.5" />
+                      自动
+                    </Badge>
+                  )}
+                  {isModified && (
+                    <Badge variant="outline" className="shrink-0 text-[10px]">
+                      已微调
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {obj.bbox[2] - obj.bbox[0]} × {obj.bbox[3] - obj.bbox[1]} px
+                  {suggested !== 0 && (
+                    <span className="ml-1 text-primary/70">（建议 {suggested}°）</span>
+                  )}
+                </p>
+              </div>
+              <div className="flex items-center gap-1">
+                <RotateCw className="h-3.5 w-3.5 text-muted-foreground" />
+                <div className="flex gap-1">
+                  {ANGLES.map((ang) => (
+                    <Button
+                      key={ang}
+                      variant={current === ang ? "default" : "outline"}
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => onRotationChange(i, ang)}
+                    >
+                      {ang}°
+                    </Button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

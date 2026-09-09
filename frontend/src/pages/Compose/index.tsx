@@ -18,6 +18,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 type DetectedObject = {
   bbox: [number, number, number, number];
   label: string;
+  suggested_rotation: number;
 };
 
 type Props = {
@@ -76,8 +77,13 @@ export default function ComposePage({ onBack, apiKey }: Props) {
       setObjects(data.objects);
       setDetectSource(data.source);
       setImgSize({ w: data.image_width, h: data.image_height });
-      setRotations(new Array(data.objects.length).fill(180));
-      toast.success(`检测到 ${data.objects.length} 个物品（${data.source === "vlm" ? "VLM" : "本地"}）`);
+      // 用 VLM 建议角度初始化（本地降级时全为 0）
+      setRotations(data.objects.map((o) => o.suggested_rotation ?? 0));
+      const autoCount = data.objects.filter((o) => (o.suggested_rotation ?? 0) !== 0).length;
+      toast.success(
+        `检测到 ${data.objects.length} 个物品（${data.source === "vlm" ? "VLM" : "本地"}）` +
+          (autoCount > 0 ? `，${autoCount} 个已自动校正角度` : ""),
+      );
     } catch (err) {
       toast.error(`检测失败：${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -199,10 +205,12 @@ export default function ComposePage({ onBack, apiKey }: Props) {
         {objects.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>步骤 2：物品旋转设置</CardTitle>
+              <CardTitle>步骤 2：旋转校正</CardTitle>
               <CardDescription>
                 检测到 {objects.length} 个物品（来源：{detectSource === "vlm" ? "VLM" : "本地连通域"}）。
-                为每个物品选择旋转角度。
+                {detectSource === "vlm"
+                  ? "已根据包装文字方向自动建议旋转角度，可手动微调。"
+                  : "本地模式无法自动判断文字方向，请手动选择旋转角度使文字正向。"}
               </CardDescription>
             </CardHeader>
             <CardContent>
