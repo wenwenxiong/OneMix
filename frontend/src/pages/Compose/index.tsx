@@ -535,7 +535,10 @@ export default function ComposePage({ onBack, apiKey }: Props) {
                   <CardTitle>步骤 2：检测结果汇总</CardTitle>
                   <CardDescription>
                     {batchFiles.length} 张图共检测到 {batchObjects.reduce((s, o) => s + o.length, 0)} 个物品。
-                    角度已通过 VLM 分两步自动校正，批量模式将枚举多种布局变体（横排/竖排/网格等）。
+                    角度已通过 VLM 分两步自动校正。
+                    {batchObjects.every((objs) => objs.length === 1)
+                      ? "单物品将生成 2 种摆放变体（竖放 + 横放）。"
+                      : "多物品将枚举多种布局变体（横排/竖排/网格等）。"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

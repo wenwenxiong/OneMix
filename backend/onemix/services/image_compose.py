@@ -39,7 +39,8 @@ def detect_objects_via_vlm(image_path: Path, api_key: str) -> list[dict[str, Any
 
     分两步：
     1) 第一步：检测所有物品的 bbox + label（不判断角度）
-    2) 第二步：裁剪每个物品，单独调 VLM 判断旋转角度（单物品判断更准）
+    2) 后处理：对大 bbox（面积 > 原图 40%）做白线扫描切割，处理 VLM 把相邻物品合并的情况
+    3) 第二步：裁剪每个物品，单独调 VLM 判断旋转角度（单物品判断更准）
 
     返回格式：[{"bbox": [x1, y1, x2, y2], "label": "...", "suggested_rotation": 0}, ...]
     坐标基于原图像素，x1<y1<x2<y2。
@@ -51,6 +52,31 @@ def detect_objects_via_vlm(image_path: Path, api_key: str) -> list[dict[str, Any
         user_prompt=prompts.OBJECT_DETECT_BBOX_PROMPT,
     )
     objects = _parse_bbox_json(raw)
+
+    # 后处理：对大 bbox（面积 > 原图 40%）做白线切割
+    im = Image.open(image_path).convert("RGB")
+    img_area = im.width * im.height
+    split_objects: list[dict[str, Any]] = []
+    for obj in objects:
+        x1, y1, x2, y2 = obj["bbox"]
+        bbox_area = (x2 - x1) * (y2 - y1)
+        if bbox_area > img_area * 0.4:
+            # 大 bbox，尝试白线切割
+            sub_bboxes = _split_bbox_by_white_lines(im, (x1, y1, x2, y2))
+            if len(sub_bboxes) > 1:
+                # 切割成功，替换为多个子 bbox
+                for j, sub in enumerate(sub_bboxes):
+                    split_objects.append({
+                        "bbox": list(sub),
+                        "label": f"{obj['label']}{j + 1}",
+                        "suggested_rotation": 0,
+                    })
+            else:
+                split_objects.append(obj)
+        else:
+            split_objects.append(obj)
+
+    objects = split_objects if split_objects else objects
 
     # 第二步：裁剪每个物品，单独调 VLM 判断角度
     rgba_objects = crop_to_rgba_objects(image_path, objects)
@@ -258,14 +284,121 @@ def detect_objects_local(image_path: Path, threshold: int = WHITE_THRESHOLD) -> 
     bboxes.sort(key=lambda b: b[4], reverse=True)
     bboxes = bboxes[:10]
 
+    # 对每个连通域 bbox 做白线扫描切割（处理相邻物品被合并的情况）
+    final_bboxes: list[tuple[int, int, int, int]] = []
+    for x1, y1, x2, y2, _area in bboxes:
+        sub_bboxes = _split_bbox_by_white_lines(im, (x1, y1, x2, y2))
+        final_bboxes.extend(sub_bboxes)
+
     out: list[dict[str, Any]] = []
-    for i, (x1, y1, x2, y2, _area) in enumerate(bboxes):
+    for i, (x1, y1, x2, y2) in enumerate(final_bboxes):
         out.append({
             "bbox": [x1, y1, x2, y2],
             "label": f"物品{i + 1}",
             "suggested_rotation": 0,
         })
     return out
+
+
+def _find_white_runs(is_white: list[bool], min_thickness: int) -> list[tuple[int, int]]:
+    """找出连续白线段的起止位置（宽度 >= min_thickness）。
+
+    Args:
+        is_white: 每个位置是否为白色的布尔列表
+        min_thickness: 白线最小宽度（像素）
+
+    Returns:
+        [(start, end), ...] 每个白线段的起止索引（end 为 exclusive）
+    """
+    runs: list[tuple[int, int]] = []
+    i = 0
+    n = len(is_white)
+    while i < n:
+        if is_white[i]:
+            start = i
+            while i < n and is_white[i]:
+                i += 1
+            end = i
+            if end - start >= min_thickness:
+                runs.append((start, end))
+        else:
+            i += 1
+    return runs
+
+
+def _split_bbox_by_white_lines(
+    image: Image.Image,
+    bbox: tuple[int, int, int, int],
+    threshold: int = WHITE_THRESHOLD,
+    min_white_thickness: int = 2,
+) -> list[tuple[int, int, int, int]]:
+    """检查 bbox 内部是否有全白行/列（宽度 >= min_white_thickness），
+    如果有则在白线处切割成多个子 bbox。
+
+    用于处理 VLM/连通域把相邻物品合并成一个大 bbox 的情况。
+    优先按垂直白线切割（左右分割），再按水平白线切割（上下分割）。
+
+    Args:
+        image: 原图（RGB）
+        bbox: (x1, y1, x2, y2)
+        threshold: 白底阈值
+        min_white_thickness: 白线最小宽度（像素）
+
+    Returns:
+        切割后的子 bbox 列表。如果无需切割，返回原 bbox 单元素列表。
+    """
+    x1, y1, x2, y2 = bbox
+    w = x2 - x1
+    h = y2 - y1
+    if w <= 5 or h <= 5:
+        return [bbox]
+
+    crop = image.crop((x1, y1, x2, y2)).convert("RGB")
+    px = crop.load()
+
+    # 扫描全白列（垂直白线）：列上所有像素都是白色
+    is_white_col = [all(px[i, j][0] >= threshold and px[i, j][1] >= threshold and px[i, j][2] >= threshold for j in range(h)) for i in range(w)]
+    white_col_runs = _find_white_runs(is_white_col, min_white_thickness)
+
+    # 优先按垂直白线切割（左右分割）
+    if white_col_runs:
+        sub_bboxes: list[tuple[int, int, int, int]] = []
+        prev_x = x1
+        for run_start, run_end in white_col_runs:
+            sub_x2 = x1 + run_start
+            if sub_x2 > prev_x:
+                sub_bboxes.append((prev_x, y1, sub_x2, y2))
+            prev_x = x1 + run_end
+        if x2 > prev_x:
+            sub_bboxes.append((prev_x, y1, x2, y2))
+        # 过滤过小的子 bbox
+        valid = [b for b in sub_bboxes if (b[2] - b[0]) > 5 and (b[3] - b[1]) > 5]
+        if len(valid) > 1:
+            return valid
+        # 切割后只剩 1 个有效区域，等于没切
+        return [bbox]
+
+    # 再按水平白线切割（上下分割）
+    is_white_row = [all(px[i, j][0] >= threshold and px[i, j][1] >= threshold and px[i, j][2] >= threshold for i in range(w)) for j in range(h)]
+    white_row_runs = _find_white_runs(is_white_row, min_white_thickness)
+
+    if white_row_runs:
+        sub_bboxes = []
+        prev_y = y1
+        for run_start, run_end in white_row_runs:
+            sub_y2 = y1 + run_start
+            if sub_y2 > prev_y:
+                sub_bboxes.append((x1, prev_y, x2, sub_y2))
+            prev_y = y1 + run_end
+        if y2 > prev_y:
+            sub_bboxes.append((x1, prev_y, x2, y2))
+        valid = [b for b in sub_bboxes if (b[2] - b[0]) > 5 and (b[3] - b[1]) > 5]
+        if len(valid) > 1:
+            return valid
+        return [bbox]
+
+    # 无白线，返回原 bbox
+    return [bbox]
 
 
 def crop_to_rgba_objects(image_path: Path, bboxes: list[dict[str, Any]]) -> list[Image.Image]:
@@ -601,15 +734,15 @@ def batch_compose_single_image(
 
     改进后逻辑：
     - 角度：用 suggested_rotation（VLM 分两步校正后的最佳值），不再枚举角度
-    - 布局：枚举多种布局变体（横排/竖排/网格等，按物品数自适应）
-    - 单物品：枚举画布比例变体（1:1/3:4/4:3）
+    - 多物品：枚举多种布局变体（横排/竖排/网格等，按物品数自适应）
+    - 单物品：固定 2 种摆放变体（竖放 + 横放），不受 max_count 限制
 
     Args:
         image_path: 原图路径
         bboxes: 检测结果列表，每个含 bbox/label/suggested_rotation
-        max_count: 最大布局变体数
+        max_count: 最大布局变体数（仅多物品生效，单物品固定 2 张）
         layout_mode: 布局模式（auto 时枚举所有，指定时只生成对应类型）
-        target_ratio: 画布比例（单物品模式忽略，用比例变体）
+        target_ratio: 画布比例
         fmt: 输出格式 JPG/PNG
 
     Returns:
@@ -646,19 +779,24 @@ def batch_compose_single_image(
     results: list[dict[str, Any]] = []
 
     if n == 1:
-        # 单物品：枚举画布比例变体
-        ratio_variants = list(SINGLE_OBJECT_RATIO_VARIANTS)[:max_count]
-        for idx, ratio in enumerate(ratio_variants):
-            canvas, _positions = layout_objects(
-                rotated,
-                layout_mode="horizontal",  # 单物品横排=居中
-                rotations=[0],  # 旋转已在上面应用
-                seed=idx,
-                target_ratio=ratio,
+        # 单物品：2 种摆放变体（竖放 + 横放）
+        # 竖放 = suggested_rotation（VLM 建议角度，文字正向）
+        # 横放 = (suggested + 90) % 360（在竖放基础上再转 90°，文字朝侧正常）
+        suggested = rotations[0]
+        variants = [
+            ("竖放", suggested),
+            ("横放", (suggested + 90) % 360),
+        ]
+        for idx, (label, angle) in enumerate(variants):
+            obj = rgba_objects[0] if angle == 0 else rotate_object(rgba_objects[0], angle)
+            canvas, _positions = _render_layout(
+                {"type": "horizontal", "rows": [[0]]},
+                [obj],
+                [angle],
             )
             results.append({
                 "image_base64": _encode(canvas),
-                "filename": f"组合{idx + 1:02d}_{ratio.replace(':', 'x')}.{ext}",
+                "filename": f"组合{idx + 1:02d}_{label}.{ext}",
             })
         return results
 
