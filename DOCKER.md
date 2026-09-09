@@ -62,7 +62,7 @@ docker compose up --build -d
 | `DASHSCOPE_API_KEY` | DashScope 路线 |
 | `ARK_API_KEY` | `doubao_seedream_5` 等需 ARK Key 时必填 |
 | `ONEMIX_WEB_PORT` | 宿主机访问前端的端口，默认 `5173` |
-| `PIP_INDEX_URL` | 构建 **api** 镜像时 pip 使用的索引，默认清华镜像；海外可改为 `https://pypi.org/simple` |
+| `PIP_INDEX_URL` | 构建 **api** 镜像时 pip 使用的索引，默认阿里云镜像；海外可改为 `https://pypi.org/simple` |
 | `NPM_REGISTRY` | 构建 **web** 镜像时 npm 使用的 registry，默认 `https://registry.npmmirror.com`；海外可改为 `https://registry.npmjs.org` |
 
 勿将真实 Key 写入镜像；使用 `.env` 或编排平台的 Secret。
@@ -85,7 +85,7 @@ docker compose up --build -d
 根目录 `requirements.txt` 会 `-r` 引用后端文件；镜像构建时已先复制该文件再执行 `pip install`，若仍报错请确认本地存在 `backend/requirements.txt` 并已提交。
 
 **`No matching distribution found for requests` 且 `(from versions: none)`？**  
-多为访问 **PyPI 官方源 `pypi.org` 不稳定**（超时、半包）。处理：构建 **api** 时默认使用国内镜像（见 `docker-compose.yml` 的 `PIP_INDEX_URL` 与根目录 `Dockerfile` 的 `api` 阶段）；仍失败时可换阿里云等镜像，或加大出网带宽后再 `docker compose build --no-cache api`。
+多为访问 **PyPI 镜像不稳定**（超时、半包、同步延迟）。处理：构建 **api** 时默认使用阿里云镜像（见 `docker-compose.yml` 的 `PIP_INDEX_URL` 与根目录 `Dockerfile` 的 `api` 阶段）；仍失败时可换腾讯云 `https://mirrors.cloud.tencent.com/pypi/simple`、清华 `https://pypi.tuna.tsinghua.edu.cn/simple`，或加大出网带宽后再 `docker compose build --no-cache api`。
 
 **前端构建阶段 `npm ci` 失败 / 网络超时？**  
 默认使用 `https://registry.npmmirror.com`。若仍超时，可在 `docker-compose.yml` 的 `web.build.args` 中改 `NPM_REGISTRY` 为其他可用镜像，或加大出网带宽后 `docker compose build --no-cache web`。  

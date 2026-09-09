@@ -13,7 +13,7 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 COPY backend/requirements.txt /app/backend/requirements.txt
 
-ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple
 RUN pip install --no-cache-dir -U pip \
     && pip install --no-cache-dir \
         --index-url "${PIP_INDEX_URL}" \
