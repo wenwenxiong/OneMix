@@ -13,6 +13,8 @@
 
 前端使用相对路径请求（如 `/api/settings`），生产环境通过 **同源 + Nginx 反代** 即可，无需改前端构建参数。
 
+**前后端均在 Docker 内构建**：`web` 镜像通过多阶段构建，先在 `node:20-alpine` 阶段执行 `npm ci && npm run build`，再将产物复制到 `nginx:1.27-alpine`。宿主机无需预装 Node 或预构建 `frontend/dist`。
+
 ---
 
 ## 2. 涉及文件
@@ -20,24 +22,16 @@
 | 文件 | 作用 |
 |------|------|
 | [docker-compose.yml](docker-compose.yml) | 编排 `api` + `web`、卷、端口；`build.target` 指向 `Dockerfile` 中对应阶段 |
-| [Dockerfile](Dockerfile) | 统一多阶段：`target: api` 后端，`target: web` 复制本地 `frontend/dist` + Nginx |
+| [Dockerfile](Dockerfile) | 统一多阶段：`target: api` 后端；`target: web` 经 `web-builder` 阶段编译前端 + Nginx |
 | [nginx/nginx.conf](nginx/nginx.conf) | Nginx 反代与大文件上传限制 |
-| [.dockerignore](.dockerignore) | 减小构建上下文 |
+| [.dockerignore](.dockerignore) | 减小构建上下文（排除 `node_modules`、`.git`、运行时数据等） |
 | [.env.docker.example](.env.docker.example) | 环境变量示例（复制为 `.env` 可选） |
-
-**前端不在 Docker 内编译**：构建 `web` 镜像前，必须在仓库内已存在 `frontend/dist`（见下文「快速启动」）。
 
 ---
 
 ## 3. 快速启动
 
-1. 构建前端静态资源（在仓库根目录执行）：
-
-```bash
-cd frontend && npm ci && npm run build && cd ..
-```
-
-2. 构建并启动容器：
+1. 构建并启动容器（前端会在镜像内自动编译，无需手动 `npm run build`）：
 
 ```powershell
 docker compose up --build -d
@@ -46,9 +40,7 @@ docker compose up --build -d
 默认浏览器访问：**http://localhost:5173**（宿主机 `5173` 映射到容器内 Nginx 的 `5173`）。
 
 - 修改宿主机端口：环境变量 `ONEMIX_WEB_PORT`（见 `.env.docker.example`），或在 `docker-compose.yml` 中改 `ports`。
-- 若缺少 `frontend/dist`，`docker compose build web` 会失败；请先完成步骤 1。
-
-`frontend/dist` 一般在 `.gitignore` 中；CI 流水线建议顺序：**安装依赖 → `npm run build` → `docker compose build`**。
+- 海外构建若需使用 npm 官方源，可在 `docker-compose.yml` 的 `web.build.args` 中设置 `NPM_REGISTRY: https://registry.npmjs.org`。
 
 ---
 
@@ -71,6 +63,7 @@ docker compose up --build -d
 | `ARK_API_KEY` | `doubao_seedream_5` 等需 ARK Key 时必填 |
 | `ONEMIX_WEB_PORT` | 宿主机访问前端的端口，默认 `5173` |
 | `PIP_INDEX_URL` | 构建 **api** 镜像时 pip 使用的索引，默认清华镜像；海外可改为 `https://pypi.org/simple` |
+| `NPM_REGISTRY` | 构建 **web** 镜像时 npm 使用的 registry，默认 `https://registry.npmmirror.com`；海外可改为 `https://registry.npmjs.org` |
 
 勿将真实 Key 写入镜像；使用 `.env` 或编排平台的 Secret。
 
@@ -94,10 +87,9 @@ docker compose up --build -d
 **`No matching distribution found for requests` 且 `(from versions: none)`？**  
 多为访问 **PyPI 官方源 `pypi.org` 不稳定**（超时、半包）。处理：构建 **api** 时默认使用国内镜像（见 `docker-compose.yml` 的 `PIP_INDEX_URL` 与根目录 `Dockerfile` 的 `api` 阶段）；仍失败时可换阿里云等镜像，或加大出网带宽后再 `docker compose build --no-cache api`。
 
-**构建 web 报错找不到 `frontend/dist`？**  
-请先执行 `cd frontend && npm ci && npm run build`，再 `docker compose build web`。  
-若**磁盘上已有 `frontend/dist`** 仍报 `not found`，请看构建日志里的 **`transferring context` 大小**：若只有几百～几千字节，说明 **`dist` 未进入构建上下文**，几乎总是 **`.dockerignore` 写错**（例如写了裸 `dist`，会匹配任意目录下的 `dist`，把 `frontend/dist` 一并排除）。请对照仓库根目录最新 `.dockerignore`（只应忽略 `/dist/` 表示仓库根下的 `dist`，并保留末尾的 `!frontend/dist/`），在服务器上 `git pull` 或手动修正后重试。  
-若 `frontend/dist` 为**指向上下文外的符号链接**，也会导致 COPY 失败，请用 `ls -la frontend/dist` 检查。
+**前端构建阶段 `npm ci` 失败 / 网络超时？**  
+默认使用 `https://registry.npmmirror.com`。若仍超时，可在 `docker-compose.yml` 的 `web.build.args` 中改 `NPM_REGISTRY` 为其他可用镜像，或加大出网带宽后 `docker compose build --no-cache web`。  
+若提示 `npm err! code ERESOLVE` 依赖冲突，通常是 `package-lock.json` 与 `package.json` 不同步，请在仓库根目录执行 `cd frontend && npm install && cd ..` 重新生成 lock 文件并提交。
 
 **构建阶段 `apt-get` 连不上 deb.debian.org？**  
 当前 **api** 镜像已去掉构建时 `apt-get`；若你自行加回，请配置 Debian 镜像或代理。

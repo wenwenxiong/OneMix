@@ -1,0 +1,70 @@
+# --- Git / VCS ---
+.git
+.gitignore
+.gitattributes
+
+# --- Python 缓存与虚拟环境 ---
+**/__pycache__
+**/*.py[cod]
+**/*.so
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+.venv
+venv
+env
+
+# --- Node / 前端本地产物（容器内会重新构建，无需进入上下文） ---
+**/node_modules
+frontend/dist
+frontend/.vite
+**/*.tsbuildinfo
+
+# --- 环境变量与密钥 ---
+.env
+.env.*
+!.env.docker.example
+*.pem
+*.p12
+*.key
+*.secret
+config.local.*
+
+# --- 日志与临时文件 ---
+*.log
+*.tmp
+*.temp
+tmp
+temp
+
+# --- 运行时数据 ---
+backend/data/*.db
+backend/data/*.db-*
+data/*.db
+data/*.db-*
+
+# --- 大体积资源（不参与构建） ---
+video/
+images/
+
+# --- 本地脚手架配置 ---
+frontend/components.json
+
+# --- OS / 编辑器 ---
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+.cursor
+*.swp
+*~
+
+# --- 私有文档 ---
+ProjectOverview.md
+docs/
+
+# --- Docker 自身文件无需进入上下文 ---
+Dockerfile
+docker-compose.yml
+.dockerignore
+DOCKER.md

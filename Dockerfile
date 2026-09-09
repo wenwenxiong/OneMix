@@ -32,12 +32,30 @@ EXPOSE 8767
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8767"]
 
 # -----------------------------------------------------------------------------
-# target: web — 本机/CI 已构建的 frontend/dist + Nginx（不在镜像内跑 npm）
-# 构建前请执行：cd frontend && npm ci && npm run build
+# target: web-builder — 在镜像内编译前端（Vite 产物 /build/dist）
+# -----------------------------------------------------------------------------
+FROM node:20-alpine AS web-builder
+
+WORKDIR /build
+
+# 默认使用国内 npm 镜像，海外构建可通过 --build-arg NPM_REGISTRY 覆盖
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+RUN npm config set registry "${NPM_REGISTRY}"
+
+# 先复制依赖清单以利用 layer 缓存
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+# 再复制源码并构建
+COPY frontend/ ./
+RUN npm run build
+
+# -----------------------------------------------------------------------------
+# target: web — Nginx 托管前端构建产物，并反代 /api、/health 到 api
 # -----------------------------------------------------------------------------
 FROM nginx:1.27-alpine AS web
 
-COPY frontend/dist /usr/share/nginx/html
+COPY --from=web-builder /build/dist /usr/share/nginx/html
 COPY nginx/nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 5173
