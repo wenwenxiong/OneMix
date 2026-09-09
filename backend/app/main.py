@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import gc
 import io
 import json
+import logging
 import os
 import tempfile
 import time
@@ -19,6 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
+logger = logging.getLogger(__name__)
+
 from app.database import get_db, init_db
 from app.deps import (
     get_ark_api_key_optional,
@@ -31,7 +34,10 @@ from app.ref_paths import default_ref_white_index
 from app.routers import settings as settings_routes
 from app.schemas import (
     BundleAllBody,
+    ComposeOptions,
     CreateJobBody,
+    DetectObjectsOut,
+    DetectedObject,
     ExtractInfoOut,
     JobStatusOut,
     PlanSingleBody,
@@ -39,6 +45,7 @@ from app.schemas import (
     PlanSlotsRow,
 )
 from onemix.services import dashscope_svc
+from onemix.services import image_compose
 
 _api_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="onemix_api")
 
@@ -591,3 +598,138 @@ def api_job_result_preview(job_id: str, list_index: int) -> FileResponse:
     if p.suffix.lower() == ".mp4":
         return FileResponse(path=str(p), media_type="video/mp4")
     return FileResponse(path=str(p))
+
+
+# -----------------------------------------------------------------------------
+# 图片组合工具：物品检测 + 旋转/布局/合成（独立于 AI 生图流程）
+# -----------------------------------------------------------------------------
+
+
+@app.post("/api/image/detect-objects", response_model=DetectObjectsOut)
+async def api_detect_objects(
+    db: Annotated[Session, Depends(get_db)],
+    x_dashscope_key: Annotated[str | None, Header(alias="X-DashScope-Key")] = None,
+    authorization: Annotated[str | None, Header()] = None,
+    image: UploadFile = File(...),
+    mode: str = Form("auto"),
+) -> DetectObjectsOut:
+    """识别单张白底图中的多个独立物品，返回每个物品的 bbox。
+
+    mode:
+      - "vlm"：强制使用 qwen-vl-plus（需 DashScope Key）
+      - "local"：强制使用本地连通域分割（无需 Key）
+      - "auto"（默认）：有 Key 用 VLM，失败/无 Key 降级到本地
+    """
+    data = await image.read()
+    if len(data) > 25 * 1024 * 1024:
+        raise HTTPException(413, "图片过大（限 25MB）")
+    suf = Path(image.filename or "img.png").suffix or ".png"
+    tmp = _write_temp_upload(data, suf)
+    try:
+        from PIL import Image as _PILImage
+
+        with _PILImage.open(tmp) as _im:
+            img_w, img_h = _im.size
+
+        objects: list[dict] = []
+        source = "local"
+
+        if mode in ("vlm", "auto"):
+            dashscope_key = get_dashscope_api_key_optional(
+                db=db, x_dashscope_key=x_dashscope_key, authorization=authorization
+            )
+            if dashscope_key:
+                try:
+                    def work_vlm() -> list[dict]:
+                        return image_compose.detect_objects_via_vlm(tmp, dashscope_key)
+
+                    objects = await _run_blocking(work_vlm)
+                    source = "vlm"
+                except Exception as e:
+                    logger.warning("VLM 检测失败，降级到本地连通域: %s", e)
+                    if mode == "vlm":
+                        raise HTTPException(500, f"VLM 检测失败: {e}")
+                    objects = []
+            elif mode == "vlm":
+                raise HTTPException(401, "VLM 模式需要 DashScope API Key")
+
+        if not objects and mode in ("local", "auto"):
+            try:
+                def work_local() -> list[dict]:
+                    return image_compose.detect_objects_local(tmp)
+
+                objects = await _run_blocking(work_local)
+                source = "local"
+            except Exception as e:
+                raise HTTPException(500, f"物品检测失败: {e}")
+
+        if not objects:
+            raise HTTPException(500, "未检测到任何物品")
+
+        return DetectObjectsOut(
+            objects=[DetectedObject(**o) for o in objects],
+            source=source,
+            image_width=img_w,
+            image_height=img_h,
+        )
+    finally:
+        _try_unlink(tmp)
+
+
+@app.post("/api/image/compose")
+async def api_compose_image(
+    image: UploadFile = File(...),
+    options: str = Form(...),
+) -> StreamingResponse:
+    """根据 bbox + 旋转角度 + 布局模式，合成最终图片。
+
+    options 为 JSON 字符串，对应 ComposeOptions 模型。
+    """
+    try:
+        body = ComposeOptions.model_validate(json.loads(options))
+    except (json.JSONDecodeError, ValueError) as e:
+        raise HTTPException(400, f"options JSON 无效: {e}") from e
+
+    data = await image.read()
+    if len(data) > 25 * 1024 * 1024:
+        raise HTTPException(413, "图片过大（限 25MB）")
+    suf = Path(image.filename or "img.png").suffix or ".png"
+    tmp = _write_temp_upload(data, suf)
+    try:
+        bboxes = [o.model_dump() for o in body.bboxes]
+        rotations = body.rotations if body.rotations else [0] * len(bboxes)
+        if len(rotations) != len(bboxes):
+            raise HTTPException(400, "rotations 长度须与 bboxes 一致")
+
+        def work() -> tuple[bytes, str]:
+            from PIL import Image as _PILImage
+            import io as _io
+
+            canvas, _positions = image_compose.compose_image(
+                image_path=tmp,
+                bboxes=bboxes,
+                rotations=rotations,
+                layout_mode=body.layout_mode,
+                seed=body.seed,
+                target_ratio=body.target_ratio,
+            )
+            buf = _io.BytesIO()
+            if body.fmt.upper() == "JPG":
+                canvas.convert("RGB").save(buf, "JPEG", quality=92, optimize=True)
+                mime = "image/jpeg"
+                ext = "jpg"
+            else:
+                canvas.save(buf, "PNG", optimize=True)
+                mime = "image/png"
+                ext = "png"
+            return buf.getvalue(), f"compose.{ext}"
+
+        img_bytes, filename = await _run_blocking(work)
+    finally:
+        _try_unlink(tmp)
+
+    return StreamingResponse(
+        io.BytesIO(img_bytes),
+        media_type="image/jpeg" if body.fmt.upper() == "JPG" else "image/png",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

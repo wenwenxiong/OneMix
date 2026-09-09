@@ -20,8 +20,18 @@ import {
   previewErrorHandler,
 } from "./helpers";
 
-export default function Home() {
+type HomeProps = {
+  onNavigateCompose?: () => void;
+  onApiKeyChange?: (key: string) => void;
+};
+
+export default function Home({ onNavigateCompose, onApiKeyChange }: HomeProps = {}) {
   const app = useOneMixApp();
+
+  // 同步 apiKey 到父组件（供 Compose 页面使用）
+  if (onApiKeyChange && app.apiKey !== undefined) {
+    onApiKeyChange(app.apiKey);
+  }
 
   return (
     <main className="min-h-screen" aria-busy={app.busy}>
@@ -112,6 +122,7 @@ export default function Home() {
         <AppHeader
           onSettings={() => app.setShowSettings(true)}
           onLog={() => app.setShowLog(true)}
+          onNavigateCompose={onNavigateCompose}
         />
         <StepProgress currentStep={app.currentStep} />
 

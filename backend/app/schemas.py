@@ -167,3 +167,30 @@ class BundleAllItemIn(BaseModel):
 class BundleAllBody(BaseModel):
     items: list[BundleAllItemIn] = Field(min_length=1)
     product_name: str = ""
+
+
+class DetectedObject(BaseModel):
+    bbox: list[int] = Field(min_length=4, max_length=4, description="[x1, y1, x2, y2] 像素坐标")
+    label: str = "物品"
+
+
+class DetectObjectsOut(BaseModel):
+    objects: list[DetectedObject]
+    source: str = Field(description="vlm 或 local")
+    image_width: int
+    image_height: int
+
+
+class ComposeOptions(BaseModel):
+    bboxes: list[DetectedObject] = Field(description="物品 bbox 列表（来自 detect-objects 或前端手动构造）")
+    rotations: list[int] = Field(
+        default_factory=list,
+        description="每个物品的旋转角度（0/90/180/270），长度须与 bboxes 一致",
+    )
+    layout_mode: str = Field(
+        default="auto",
+        description="布局模式：auto/horizontal/vertical/2h1v/1h2v/grid",
+    )
+    seed: Optional[int] = Field(default=None, description="随机种子，用于复现布局")
+    target_ratio: str = Field(default="1:1", description="目标画布宽高比：1:1/3:4/4:3")
+    fmt: str = Field(default="JPG", description="输出格式：JPG 或 PNG")

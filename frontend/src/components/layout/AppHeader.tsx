@@ -1,13 +1,14 @@
-import { ScrollText, Settings } from "lucide-react";
+import { Images, ScrollText, Settings } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 
 type AppHeaderProps = {
   onSettings: () => void;
   onLog: () => void;
+  onNavigateCompose?: () => void;
 };
 
-export function AppHeader({ onSettings, onLog }: AppHeaderProps) {
+export function AppHeader({ onSettings, onLog, onNavigateCompose }: AppHeaderProps) {
   return (
     <header className="flex flex-wrap items-start justify-between gap-6">
       <div className="min-w-0 flex-1 space-y-3">
@@ -22,6 +23,19 @@ export function AppHeader({ onSettings, onLog }: AppHeaderProps) {
         </p>
       </div>
       <div className="flex items-center gap-1 rounded-xl border border-border/80 bg-card/80 p-1 shadow-sm backdrop-blur-sm">
+        {onNavigateCompose && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onNavigateCompose}
+            className="gap-1.5"
+            aria-label="图片组合工具"
+            title="图片组合工具"
+          >
+            <Images className="h-4 w-4" />
+            <span className="hidden text-sm sm:inline">图片组合</span>
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
